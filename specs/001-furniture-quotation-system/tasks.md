@@ -80,17 +80,17 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T033 [P] [US1] Contract test for POST /api/upload endpoint in backend/tests/contract/test_upload_api.py
-- [ ] T034 [P] [US1] Contract test for POST /api/parse/{document_id} endpoint in backend/tests/contract/test_parse_api.py
-- [ ] T035 [P] [US1] Contract test for GET /api/parse/{document_id}/result endpoint in backend/tests/contract/test_parse_api.py
-- [ ] T036 [P] [US1] Contract test for POST /api/quotation endpoint in backend/tests/contract/test_export_api.py
-- [ ] T037 [P] [US1] Contract test for POST /api/export/{quotation_id}/excel endpoint in backend/tests/contract/test_export_api.py
-- [ ] T038 [P] [US1] Contract test for GET /api/export/{quotation_id}/download endpoint in backend/tests/contract/test_export_api.py
-- [ ] T039 [P] [US1] Contract test for GET /api/task/{task_id} endpoint in backend/tests/contract/test_task_api.py
-- [ ] T040 [P] [US1] Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py
-- [ ] T041 [P] [US1] Unit test for image_extractor service (PyMuPDF) in backend/tests/unit/test_image_extractor.py
-- [ ] T042 [P] [US1] Unit test for excel_generator service (openpyxl) in backend/tests/unit/test_excel_generator.py
-- [ ] T043 [US1] Integration test for upload-parse-export flow in backend/tests/integration/test_upload_flow.py
+- [x] T033 [P] [US1] Contract test for POST /api/upload endpoint in backend/tests/contract/test_upload_api.py
+- [x] T034 [P] [US1] Contract test for POST /api/parse/{document_id} endpoint in backend/tests/contract/test_parse_api.py
+- [x] T035 [P] [US1] Contract test for GET /api/parse/{document_id}/result endpoint in backend/tests/contract/test_parse_api.py
+- [x] T036 [P] [US1] Contract test for POST /api/quotation endpoint in backend/tests/contract/test_export_api.py
+- [x] T037 [P] [US1] Contract test for POST /api/export/{quotation_id}/excel endpoint in backend/tests/contract/test_export_api.py
+- [x] T038 [P] [US1] Contract test for GET /api/export/{quotation_id}/download endpoint in backend/tests/contract/test_export_api.py
+- [x] T039 [P] [US1] Contract test for GET /api/task/{task_id} endpoint in backend/tests/contract/test_task_api.py
+- [x] T040 [P] [US1] Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py
+- [x] T041 [P] [US1] Unit test for image_extractor service (PyMuPDF) in backend/tests/unit/test_image_extractor.py
+- [x] T042 [P] [US1] Unit test for excel_generator service (openpyxl) in backend/tests/unit/test_excel_generator.py
+- [x] T043 [US1] Integration test for upload-parse-export flow in backend/tests/integration/test_upload_flow.py
 
 ### Implementation for User Story 1
 
