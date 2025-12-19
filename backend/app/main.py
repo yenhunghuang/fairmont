@@ -143,15 +143,14 @@ async def health_check() -> dict:
     }
 
 
-# Placeholder for router registration
-# These will be added by T025
-# Example structure:
-# from .api.routes import health, upload, parse, export, task
-# app.include_router(health.router)
-# app.include_router(upload.router)
-# app.include_router(parse.router)
-# app.include_router(export.router)
-# app.include_router(task.router)
+# Register API routers
+from .api.routes import health, upload, parse, export, task
+
+app.include_router(health.router)
+app.include_router(upload.router)
+app.include_router(parse.router)
+app.include_router(export.router)
+app.include_router(task.router)
 
 
 if __name__ == "__main__":
