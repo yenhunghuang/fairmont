@@ -1,0 +1,821 @@
+openapi: 3.0.3
+info:
+  title: 家具報價單系統 API
+  description: |
+    家具報價單系統後端 API，提供 PDF 上傳、BOQ 解析、Excel 報價單產出功能。
+
+    ## 功能概述
+    - PDF 檔案上傳與管理
+    - BOQ 表格自動解析（使用 Gemini AI）
+    - 平面圖數量核對
+    - 惠而蒙格式 Excel 報價單產出
+
+    ## 錯誤處理
+    所有錯誤回應皆使用繁體中文訊息。
+  version: 1.0.0
+  contact:
+    name: API 支援
+
+servers:
+  - url: http://localhost:8000
+    description: 開發環境
+  - url: http://api.example.com
+    description: 生產環境
+
+tags:
+  - name: Health
+    description: 健康檢查
+  - name: Upload
+    description: 檔案上傳
+  - name: Parse
+    description: PDF 解析
+  - name: Export
+    description: Excel 匯出
+  - name: Task
+    description: 任務狀態追蹤
+
+paths:
+  /:
+    get:
+      tags:
+        - Health
+      summary: 健康檢查
+      description: 確認 API 服務運行狀態
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 服務正常運行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/upload:
+    post:
+      tags:
+        - Upload
+      summary: 上傳 PDF 檔案
+      description: |
+        上傳單一或多個 PDF 檔案，系統將建立處理任務。
+
+        **限制**：
+        - 單檔最大 50MB
+        - 最多同時上傳 5 個檔案
+        - 僅接受 PDF 格式
+      operationId: uploadFiles
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: PDF 檔案（最多 5 個）
+                  maxItems: 5
+                document_type:
+                  type: string
+                  enum: [boq, floor_plan, auto]
+                  default: auto
+                  description: 文件類型（auto 表示自動偵測）
+              required:
+                - files
+      responses:
+        '200':
+          description: 上傳成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: 上傳失敗（檔案格式錯誤、大小超過限制等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 伺服器錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/documents:
+    get:
+      tags:
+        - Upload
+      summary: 取得已上傳文件列表
+      operationId: listDocuments
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: 回傳數量限制
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+          description: 篩選解析狀態
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SourceDocument'
+                  total:
+                    type: integer
+
+  /api/documents/{document_id}:
+    get:
+      tags:
+        - Upload
+      summary: 取得單一文件資訊
+      operationId: getDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceDocument'
+        '404':
+          description: 找不到文件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Upload
+      summary: 刪除文件
+      operationId: deleteDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 刪除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 文件已刪除
+        '404':
+          description: 找不到文件
+
+  /api/parse/{document_id}:
+    post:
+      tags:
+        - Parse
+      summary: 啟動 PDF 解析
+      description: |
+        對已上傳的 PDF 文件啟動 BOQ 解析任務。
+        解析使用 Gemini AI 進行，為非同步操作。
+      operationId: startParsing
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                extract_images:
+                  type: boolean
+                  default: true
+                  description: 是否提取圖片
+                target_categories:
+                  type: array
+                  items:
+                    type: string
+                  description: 目標類別篩選（如：活動家具）
+      responses:
+        '202':
+          description: 解析任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          description: 請求無效
+        '404':
+          description: 找不到文件
+
+  /api/parse/{document_id}/result:
+    get:
+      tags:
+        - Parse
+      summary: 取得解析結果
+      description: 取得 PDF 解析完成後的 BOQ 項目列表
+      operationId: getParseResult
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BOQItem'
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExtractedImage'
+                  statistics:
+                    $ref: '#/components/schemas/ParseStatistics'
+        '404':
+          description: 找不到文件或解析尚未完成
+
+  /api/floor-plan/analyze:
+    post:
+      tags:
+        - Parse
+      summary: 平面圖數量核對
+      description: |
+        分析平面圖 PDF，核對並補充 BOQ 項目中缺失的數量。
+      operationId: analyzeFloorPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                floor_plan_document_id:
+                  type: string
+                  description: 平面圖文件 ID
+                boq_document_id:
+                  type: string
+                  description: BOQ 文件 ID
+                items_to_verify:
+                  type: array
+                  items:
+                    type: string
+                  description: 需要核對的項目 ID 列表（空表示全部）
+              required:
+                - floor_plan_document_id
+                - boq_document_id
+      responses:
+        '202':
+          description: 核對任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+
+  /api/quotation:
+    post:
+      tags:
+        - Export
+      summary: 建立報價單
+      description: 從解析結果建立報價單
+      operationId: createQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: 來源文件 ID 列表
+                title:
+                  type: string
+                  description: 報價單標題
+              required:
+                - document_ids
+      responses:
+        '201':
+          description: 報價單已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quotation'
+
+  /api/quotation/{quotation_id}:
+    get:
+      tags:
+        - Export
+      summary: 取得報價單
+      operationId: getQuotation
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quotation'
+        '404':
+          description: 找不到報價單
+
+  /api/quotation/{quotation_id}/items:
+    get:
+      tags:
+        - Export
+      summary: 取得報價單項目列表
+      operationId: getQuotationItems
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BOQItem'
+                  total:
+                    type: integer
+
+    patch:
+      tags:
+        - Export
+      summary: 更新報價單項目
+      description: 批次更新報價單中的項目資料
+      operationId: updateQuotationItems
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      qty:
+                        type: number
+                      description:
+                        type: string
+                      materials_specs:
+                        type: string
+      responses:
+        '200':
+          description: 更新成功
+
+  /api/export/{quotation_id}/excel:
+    post:
+      tags:
+        - Export
+      summary: 產出 Excel 報價單
+      description: |
+        將報價單匯出為惠而蒙格式 Excel 檔案。
+        為非同步操作，完成後可下載檔案。
+      operationId: exportExcel
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                include_photos:
+                  type: boolean
+                  default: true
+                  description: 是否嵌入圖片
+                photo_height_cm:
+                  type: number
+                  default: 3.0
+                  description: 圖片高度（公分）
+      responses:
+        '202':
+          description: 匯出任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+
+  /api/export/{quotation_id}/download:
+    get:
+      tags:
+        - Export
+      summary: 下載 Excel 檔案
+      operationId: downloadExcel
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: Excel 檔案
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 找不到報價單或檔案尚未產出
+
+  /api/task/{task_id}:
+    get:
+      tags:
+        - Task
+      summary: 取得任務狀態
+      description: 查詢非同步任務的執行狀態與進度
+      operationId: getTaskStatus
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskStatus'
+        '404':
+          description: 找不到任務
+
+  /api/tasks:
+    get:
+      tags:
+        - Task
+      summary: 取得任務列表
+      operationId: listTasks
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskStatus'
+                  total:
+                    type: integer
+
+  /api/images/{image_id}:
+    get:
+      tags:
+        - Upload
+      summary: 取得提取的圖片
+      operationId: getImage
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 圖片檔案
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 找不到圖片
+
+components:
+  parameters:
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 文件 ID
+
+    QuotationId:
+      name: quotation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 報價單 ID
+
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 任務 ID
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: 服務運行中
+        timestamp:
+          type: string
+          format: date-time
+
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              document_id:
+                type: string
+                format: uuid
+              filename:
+                type: string
+              file_size:
+                type: integer
+              task_id:
+                type: string
+                format: uuid
+                description: 自動解析任務 ID（若啟用）
+        message:
+          type: string
+          example: 已成功上傳 3 個檔案
+
+    SourceDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        file_size:
+          type: integer
+        document_type:
+          type: string
+          enum: [boq, floor_plan, unknown]
+        parse_status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        parse_progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        parse_message:
+          type: string
+        total_pages:
+          type: integer
+        extracted_items_count:
+          type: integer
+        extracted_images_count:
+          type: integer
+        uploaded_at:
+          type: string
+          format: date-time
+        processed_at:
+          type: string
+          format: date-time
+
+    BOQItem:
+      type: object
+      required:
+        - id
+        - item_no
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+        item_no:
+          type: string
+          description: 項次編號
+        description:
+          type: string
+          description: 品名描述
+        photo_path:
+          type: string
+          description: 圖片路徑
+        photo_url:
+          type: string
+          description: 圖片 API URL
+        dimension:
+          type: string
+          description: 尺寸
+        qty:
+          type: number
+          nullable: true
+          description: 數量
+        uom:
+          type: string
+          description: 單位
+        location:
+          type: string
+          description: 位置
+        materials_specs:
+          type: string
+          description: 使用材料/規格
+        source_type:
+          type: string
+          enum: [boq, floor_plan, manual]
+        source_document_id:
+          type: string
+        source_page:
+          type: integer
+        source_location:
+          type: string
+          description: 原始 PDF 中的位置
+        qty_verified:
+          type: boolean
+        qty_source:
+          type: string
+          enum: [boq, floor_plan]
+          nullable: true
+
+    ExtractedImage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        url:
+          type: string
+          description: 圖片 API URL
+        format:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        source_document_id:
+          type: string
+        source_page:
+          type: integer
+        boq_item_id:
+          type: string
+          nullable: true
+        matched:
+          type: boolean
+
+    ParseStatistics:
+      type: object
+      properties:
+        total_items:
+          type: integer
+        items_with_qty:
+          type: integer
+        items_with_photo:
+          type: integer
+        items_missing_qty:
+          type: integer
+        total_images:
+          type: integer
+        matched_images:
+          type: integer
+
+    Quotation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        source_document_ids:
+          type: array
+          items:
+            type: string
+        total_items:
+          type: integer
+        items_with_qty:
+          type: integer
+        items_with_photo:
+          type: integer
+        items_from_floor_plan:
+          type: integer
+        export_status:
+          type: string
+          enum: [pending, generating, completed, failed]
+        export_path:
+          type: string
+          nullable: true
+
+    TaskResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        message:
+          type: string
+          example: 任務已建立，正在處理中
+
+    TaskStatus:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+          enum: [parse_pdf, extract_images, generate_excel, analyze_floor_plan]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+          description: 狀態訊息（繁體中文）
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: true
+        error_code:
+          type: string
+          example: FILE_001
+        message:
+          type: string
+          example: 檔案大小超過限制（最大 50MB）
+        detail:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
