@@ -94,26 +94,26 @@
 
 ### Implementation for User Story 1
 
-- [ ] T044 [US1] Implement PDF parser service with Gemini integration (upload_pdf, parse_boq) in backend/app/services/pdf_parser.py
-- [ ] T045 [US1] Implement image extractor service with PyMuPDF (extract_images_from_pdf) in backend/app/services/image_extractor.py
-- [ ] T046 [US1] Implement Excel generator service with openpyxl (create_quotation_excel, embed photos) in backend/app/services/excel_generator.py
-- [ ] T047 [US1] Implement upload route with file validation, BackgroundTasks per openapi.yaml in backend/app/api/routes/upload.py
-- [ ] T048 [US1] Implement parse route with start parsing and get result endpoints in backend/app/api/routes/parse.py
-- [ ] T049 [US1] Implement export route with create quotation, generate excel, download endpoints in backend/app/api/routes/export.py
-- [ ] T050 [US1] Implement task status route per openapi.yaml in backend/app/api/routes/task.py
-- [ ] T051 [US1] Implement image serving route for GET /api/images/{image_id} in backend/app/api/routes/upload.py
-- [ ] T052 [US1] Create Streamlit API client with upload_pdf, get_task_status, wait_for_completion methods in frontend/services/api_client.py
-- [ ] T053 [US1] Create frontend services __init__.py in frontend/services/__init__.py
-- [ ] T054 [US1] Implement file uploader component with progress display in frontend/components/file_uploader.py
-- [ ] T055 [US1] Implement progress display component with status messages in frontend/components/progress_display.py
-- [ ] T056 [US1] Implement material table component for preview in frontend/components/material_table.py
-- [ ] T057 [US1] Implement source reference component for PDF location display in frontend/components/source_reference.py
-- [ ] T058 [US1] Create frontend components __init__.py in frontend/components/__init__.py
-- [ ] T059 [US1] Implement upload page with file selection, processing, progress bar in frontend/pages/upload.py
-- [ ] T060 [US1] Implement preview page with material table, Excel download button in frontend/pages/preview.py
-- [ ] T061 [US1] Create frontend pages __init__.py in frontend/pages/__init__.py
-- [ ] T062 [US1] Implement Streamlit main app with navigation in frontend/app.py
-- [ ] T063 [US1] Add temp file cleanup background task on app startup in backend/app/main.py
+- [x] T044 [US1] Implement PDF parser service with Gemini integration (upload_pdf, parse_boq) in backend/app/services/pdf_parser.py
+- [x] T045 [US1] Implement image extractor service with PyMuPDF (extract_images_from_pdf) in backend/app/services/image_extractor.py
+- [x] T046 [US1] Implement Excel generator service with openpyxl (create_quotation_excel, embed photos) in backend/app/services/excel_generator.py
+- [x] T047 [US1] Implement upload route with file validation, BackgroundTasks per openapi.yaml in backend/app/api/routes/upload.py
+- [x] T048 [US1] Implement parse route with start parsing and get result endpoints in backend/app/api/routes/parse.py
+- [x] T049 [US1] Implement export route with create quotation, generate excel, download endpoints in backend/app/api/routes/export.py
+- [x] T050 [US1] Implement task status route per openapi.yaml in backend/app/api/routes/task.py
+- [x] T051 [US1] Implement image serving route for GET /api/images/{image_id} in backend/app/api/routes/upload.py
+- [x] T052 [US1] Create Streamlit API client with upload_pdf, get_task_status, wait_for_completion methods in frontend/services/api_client.py
+- [x] T053 [US1] Create frontend services __init__.py in frontend/services/__init__.py
+- [x] T054 [US1] Implement file uploader component with progress display in frontend/components/file_uploader.py
+- [x] T055 [US1] Implement progress display component with status messages in frontend/components/progress_display.py
+- [x] T056 [US1] Implement material table component for preview in frontend/components/material_table.py
+- [x] T057 [US1] Implement source reference component for PDF location display in frontend/components/source_reference.py
+- [x] T058 [US1] Create frontend components __init__.py in frontend/components/__init__.py
+- [x] T059 [US1] Implement upload page with file selection, processing, progress bar in frontend/pages/upload.py
+- [x] T060 [US1] Implement preview page with material table, Excel download button in frontend/pages/preview.py
+- [x] T061 [US1] Create frontend pages __init__.py in frontend/pages/__init__.py
+- [x] T062 [US1] Implement Streamlit main app with navigation in frontend/app.py
+- [x] T063 [US1] Add temp file cleanup background task on app startup in backend/app/main.py
 
 **Checkpoint**: User Story 1 should be fully functional - single PDF upload, parse, preview, and Excel download
 
