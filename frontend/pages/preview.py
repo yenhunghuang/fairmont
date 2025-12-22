@@ -56,13 +56,13 @@ def create_and_export_quotation(document_ids: list):
         if not quotation_id:
             return {"error": "未取得報價單 ID"}
 
-        # Export to Excel
-        export_response = client.export_excel(quotation_id)
-        if not export_response.get("success"):
-            return {"error": export_response.get("message", "匯出 Excel 失敗")}
-
-        # Download Excel
-        excel_content = client.download_excel(quotation_id)
+        # Get Excel (自動輪詢直到完成)
+        # 新的 REST API 使用 GET 請求，支援非同步產出和輪詢
+        excel_content = client.get_quotation_excel(
+            quotation_id,
+            include_photos=True,
+            photo_height_cm=3.0,
+        )
         return {"quotation_id": quotation_id, "excel_content": excel_content}
 
     except Exception as e:
