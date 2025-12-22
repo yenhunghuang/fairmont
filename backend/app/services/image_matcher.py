@@ -29,27 +29,29 @@ IMAGE_SEARCH_RADIUS = 2  # pages before/after item's page
 
 def create_description_based_prompt(boq_description: str) -> str:
     """Create Vision prompt that matches images against BOQ item description."""
-    return f"""请分析这张图片，判断它是否是与以下家具项目相匹配的实物样品照：
+    return f"""请严格分析这张图片，判断它是否是与以下家具项目相匹配的【实物产品样品照】：
 
 【项目描述】{boq_description}
 
-评估标准：
-1. 这张图片是否是实物家具/产品样品照（而非设计图、CAD、平面图）？
-2. 图片内容是否与"{boq_description}"这类产品相匹配？
-   - 如果描述是"會議桌"，图片应显示桌子而非椅子
-   - 如果描述是"辦公椅"，图片应显示椅子而非其他家具
-3. 是否清晰可见产品的样式、颜色、材质？
-4. 是否NOT是纯Logo、Icon、品牌标记？
-5. 是否NOT是文字说明图、信息图？
+⚠️ 严格评估标准（ALL必须满足）：
+1. ✓ 图片中心内容必须是实物家具/产品（非设计图、CAD、平面图、效果图）
+2. ✓ 必须能清晰看到产品的【真实样式、颜色、材质、细节】
+3. ✓ 必须与"{boq_description}"这类产品【直接相关】
+   示例：
+   - "會議桌" → 必须显示桌子（不能是椅子、柜子或其他）
+   - "辦公椅" → 必须显示椅子（不能是桌子或其他）
+4. ✗ 如果是Logo、品牌标记、Icon、商标 → is_matching_product: false
+5. ✗ 如果是纯文字、信息图、商品标签 → is_matching_product: false
+6. ✗ 如果是多个家具混合的场景 → is_matching_product: false
 
-请返回JSON格式，只返回这个格式，不要其他文本：
+【关键：如有任何疑问或不完全匹配，必须返回 false】
+
+请ONLY返回以下JSON，不要其他任何文本：
 {{
   "is_matching_product": true或false,
   "confidence": 0.0到1.0,
-  "reason": "简短说明"
-}}
-
-如果无法判断，返回 is_matching_product: false"""
+  "reason": "简短理由（最多一句）"
+}}"""
 
 
 class ImageMatcherService:
