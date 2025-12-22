@@ -128,12 +128,16 @@ async def _parse_pdf_background(
             )
 
             if images_with_bytes and boq_items:
-                task.update_progress(75, "正在使用 AI 匹配圖片...")
+                task.update_progress(75, "正在使用 AI 驗證圖片...")
 
                 # Use Gemini Vision to intelligently match images to items
+                # with product sample validation (excludes logos, design images, etc.)
                 matcher = get_image_matcher()
                 image_to_item_map = await matcher.match_images_to_items(
-                    images_with_bytes, boq_items
+                    images_with_bytes,
+                    boq_items,
+                    validate_product_images=True,
+                    min_confidence=0.6,
                 )
 
                 # Apply matches - convert to Base64 and assign to items
