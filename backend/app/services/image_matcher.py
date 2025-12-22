@@ -139,26 +139,38 @@ class ImageMatcherService:
         used_images = set()
 
         for item_idx, item in enumerate(boq_items, 1):
-            logger.debug(f"Processing item {item_idx}/{len(boq_items)}: {item.item_no}")
+            logger.info(f"Processing item {item_idx}/{len(boq_items)}: {item.item_no} (page {item.source_page or 1})")
             item_page = item.source_page or 1
 
             # Find candidate images on same page or nearby pages
             candidates = []
-            for search_page in [
+            search_range = [
                 item_page - IMAGE_SEARCH_RADIUS,
                 item_page,
                 item_page + IMAGE_SEARCH_RADIUS,
-            ]:
+            ]
+            logger.debug(f"Searching pages {search_range} for {item.item_no}")
+
+            for search_page in search_range:
                 if search_page > 0:
-                    for img in images_by_page.get(search_page, []):
-                        if img["index"] not in used_images:
-                            candidates.append(img)
+                    page_images = images_by_page.get(search_page, [])
+                    unused_images = [
+                        img for img in page_images if img["index"] not in used_images
+                    ]
+                    logger.debug(
+                        f"  Page {search_page}: {len(page_images)} total, "
+                        f"{len(unused_images)} unused"
+                    )
+                    candidates.extend(unused_images)
 
             if not candidates:
-                logger.debug(f"No candidate images found for {item.item_no}")
+                logger.warning(
+                    f"No candidate images found for {item.item_no} "
+                    f"(search pages: {search_range})"
+                )
                 continue
 
-            logger.debug(f"Found {len(candidates)} candidate images for {item.item_no}")
+            logger.info(f"Found {len(candidates)} candidate images for {item.item_no}")
 
             # 4. Validate candidates against item description
             if validate_product_images and self.enable_vision_validation:
@@ -204,11 +216,23 @@ class ImageMatcherService:
         Returns:
             Best matching image dict or None
         """
-        if not self.model or not candidates:
+        if not self.model:
+            logger.warning(f"Gemini Vision not available for {boq_item.item_no}")
             return None
 
-        best_match = None
-        best_confidence = 0.0
+        if not candidates:
+            logger.debug(f"No candidate images for {boq_item.item_no}")
+            return None
+
+        logger.debug(
+            f"Validating {len(candidates)} candidates for {boq_item.item_no} "
+            f"(description: {boq_item.description})"
+        )
+
+        best_match_verified = None
+        best_match_fallback = None
+        best_confidence_verified = 0.0
+        best_confidence_fallback = 0.0
 
         # Validate candidates against item description
         for img in candidates:
@@ -220,23 +244,44 @@ class ImageMatcherService:
                 )
 
                 logger.debug(
-                    f"Image {img['index']}: match={is_match}, "
-                    f"confidence={confidence:.2f}, reason={reason}"
+                    f"Image {img['index']} (page {img['page']}): "
+                    f"match={is_match}, confidence={confidence:.2f}, reason={reason}"
                 )
 
-                # Keep best matching image
-                if is_match and confidence > best_confidence:
-                    best_match = img
-                    best_confidence = confidence
+                # Track best verified match (is_match=True)
+                if is_match and confidence > best_confidence_verified:
+                    best_match_verified = img
+                    best_confidence_verified = confidence
+
+                # Track best fallback match (highest confidence regardless)
+                if confidence > best_confidence_fallback:
+                    best_match_fallback = img
+                    best_confidence_fallback = confidence
 
             except Exception as e:
-                logger.warning(f"Failed to validate image {img['index']}: {e}")
+                logger.warning(
+                    f"Failed to validate image {img['index']} for {boq_item.item_no}: {e}"
+                )
                 continue
 
+        # Prefer verified matches, but use fallback if available
+        best_match = best_match_verified or best_match_fallback
+
         if best_match:
+            match_type = "verified" if best_match == best_match_verified else "fallback"
+            best_confidence = (
+                best_confidence_verified
+                if best_match == best_match_verified
+                else best_confidence_fallback
+            )
             logger.info(
-                f"Best match for {boq_item.item_no}: "
+                f"Best match ({match_type}) for {boq_item.item_no}: "
                 f"image {best_match['index']} (confidence={best_confidence:.2f})"
+            )
+        else:
+            logger.warning(
+                f"No matching images found for {boq_item.item_no} "
+                f"(threshold={min_confidence})"
             )
 
         return best_match
@@ -265,8 +310,11 @@ class ImageMatcherService:
             import base64
 
             # Use description-based prompt
-            prompt = create_description_based_prompt(boq_item.description or "家具")
+            item_desc = boq_item.description or "家具"
+            prompt = create_description_based_prompt(item_desc)
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+            logger.debug(f"Calling Vision API for item: {boq_item.item_no}")
 
             # Call Gemini Vision
             response = await asyncio.to_thread(
@@ -281,35 +329,52 @@ class ImageMatcherService:
             )
 
             response_text = response.text.strip()
-            logger.debug(f"Vision response: {response_text[:200]}")
+            logger.debug(
+                f"Vision response for {boq_item.item_no}: {response_text[:300]}"
+            )
 
             # Extract JSON
             json_start = response_text.find("{")
             json_end = response_text.rfind("}") + 1
 
             if json_start == -1 or json_end <= json_start:
-                logger.warning("Could not find JSON in Vision response")
+                logger.warning(
+                    f"Could not find JSON in Vision response for {boq_item.item_no}. "
+                    f"Response: {response_text[:500]}"
+                )
                 return False, 0.0, "無法解析響應"
 
             json_str = response_text[json_start:json_end]
+            logger.debug(f"Extracted JSON: {json_str}")
+
             result = json.loads(json_str)
+            logger.debug(f"Parsed result: {result}")
 
             is_match = result.get("is_matching_product", False)
             confidence = float(result.get("confidence", 0.0))
             reason = result.get("reason", "未知原因")
 
-            # Check confidence threshold
-            if is_match and confidence >= min_confidence:
-                return True, confidence, reason
+            logger.debug(
+                f"Validation result - is_match: {is_match}, "
+                f"confidence: {confidence}, reason: {reason}"
+            )
 
-            return False, confidence, reason
+            # Return best result regardless of threshold
+            # (threshold check happens in _find_best_matching_image)
+            return is_match, confidence, reason
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse Vision JSON: {e}")
+            logger.warning(
+                f"Failed to parse Vision JSON for {boq_item.item_no}: {e}. "
+                f"Raw response: {response_text[:500] if 'response_text' in locals() else 'N/A'}"
+            )
             return False, 0.0, "JSON解析失敗"
         except Exception as e:
-            logger.error(f"Vision validation error: {e}")
-            raise
+            logger.error(
+                f"Vision validation error for {boq_item.item_no}: {e}",
+                exc_info=True,
+            )
+            return False, 0.0, f"驗證錯誤: {str(e)}"
 
     async def _validate_images_batch(
         self,
