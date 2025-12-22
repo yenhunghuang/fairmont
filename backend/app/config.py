@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Google API Configuration
+    google_credentials_path: str = ""  # Path to service account JSON
+    google_sheets_enabled: bool = False  # Feature flag
+    google_drive_folder_id: str = ""  # Optional root folder ID
+    google_sheets_master_id: str = ""  # Master spreadsheet ID for adding sheets
+
     # Computed paths
     @property
     def temp_dir_path(self) -> Path:
@@ -60,6 +66,24 @@ class Settings(BaseSettings):
     def max_file_size_bytes(self) -> int:
         """Get max file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
+
+    @property
+    def google_credentials_path_resolved(self) -> Path | None:
+        """Get resolved path to Google credentials file."""
+        if not self.google_credentials_path:
+            return None
+        path = Path(self.google_credentials_path)
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
+        return path
+
+    @property
+    def google_sheets_available(self) -> bool:
+        """Check if Google Sheets integration is available."""
+        if not self.google_sheets_enabled:
+            return False
+        creds_path = self.google_credentials_path_resolved
+        return creds_path is not None and creds_path.exists()
 
     model_config = {
         "env_file": str(_ENV_FILE),

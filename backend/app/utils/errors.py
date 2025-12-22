@@ -50,6 +50,13 @@ class ErrorCode(str, Enum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 
+    # Google API errors
+    GOOGLE_AUTH_FAILED = "GOOGLE_AUTH_FAILED"
+    GOOGLE_QUOTA_EXCEEDED = "GOOGLE_QUOTA_EXCEEDED"
+    GOOGLE_API_ERROR = "GOOGLE_API_ERROR"
+    GOOGLE_SHEETS_DISABLED = "GOOGLE_SHEETS_DISABLED"
+    GOOGLE_DRIVE_UPLOAD_FAILED = "GOOGLE_DRIVE_UPLOAD_FAILED"
+
 
 ERROR_MESSAGES: Dict[ErrorCode, str] = {
     # File errors
@@ -90,6 +97,13 @@ ERROR_MESSAGES: Dict[ErrorCode, str] = {
     # Server errors
     ErrorCode.INTERNAL_ERROR: "伺服器內部錯誤",
     ErrorCode.SERVICE_UNAVAILABLE: "服務暫時不可用，請稍後重試",
+
+    # Google API errors
+    ErrorCode.GOOGLE_AUTH_FAILED: "Google API 認證失敗，請檢查服務帳號設定",
+    ErrorCode.GOOGLE_QUOTA_EXCEEDED: "Google API 配額已用盡，請稍後重試",
+    ErrorCode.GOOGLE_API_ERROR: "Google API 呼叫失敗",
+    ErrorCode.GOOGLE_SHEETS_DISABLED: "Google Sheets 整合未啟用",
+    ErrorCode.GOOGLE_DRIVE_UPLOAD_FAILED: "圖片上傳至 Google Drive 失敗",
 }
 
 

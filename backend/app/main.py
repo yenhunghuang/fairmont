@@ -127,13 +127,14 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 # Register API routers
-from .api.routes import health, upload, parse, export, task
+from .api.routes import health, upload, parse, export, task, sheets
 
 app.include_router(health.router)
 app.include_router(upload.router)
 app.include_router(parse.router)
 app.include_router(export.router)
 app.include_router(task.router)
+app.include_router(sheets.router)
 
 
 if __name__ == "__main__":

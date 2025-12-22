@@ -259,36 +259,99 @@ def show_download_page():
 
         st.markdown("---")
 
-        # Export to Excel
-        st.subheader("📥 匯出 Excel")
+        # Export options
+        st.subheader("📥 匯出報價單")
 
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.write("點擊按鈕產生並下載 Excel 報價單")
+        # Check Google Sheets availability
+        sheets_available = False
+        try:
+            sheets_status = client.check_sheets_status()
+            sheets_available = sheets_status.get("data", {}).get("available", False)
+        except Exception:
+            pass  # Sheets not available
 
-        with col2:
-            if st.button("產出 Excel", type="primary", use_container_width=True):
-                with st.spinner("正在產生 Excel..."):
-                    try:
-                        # Get Excel file
-                        excel_content = client.get_quotation_excel(
-                            quotation_id,
-                            include_photos=True,
-                            photo_height_cm=3.0,
-                        )
+        # Export format selection
+        export_formats = ["Excel 檔案 (.xlsx)"]
+        if sheets_available:
+            export_formats.append("Google Sheets (線上連結)")
 
-                        # Download button
-                        st.download_button(
-                            label="⬇️ 點擊下載 Excel",
-                            data=excel_content,
-                            file_name=f"報價單_{quotation_id}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True,
-                        )
-                        st.success("✅ Excel 已準備好下載！")
+        export_format = st.radio(
+            "選擇匯出格式",
+            options=export_formats,
+            horizontal=True,
+            key="export_format",
+        )
 
-                    except Exception as e:
-                        st.error(f"❌ 產生 Excel 失敗：{str(e)}")
+        if export_format == "Excel 檔案 (.xlsx)":
+            # Excel export
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write("點擊按鈕產生並下載 Excel 報價單")
+
+            with col2:
+                if st.button("產出 Excel", type="primary", use_container_width=True):
+                    with st.spinner("正在產生 Excel..."):
+                        try:
+                            excel_content = client.get_quotation_excel(
+                                quotation_id,
+                                include_photos=True,
+                                photo_height_cm=3.0,
+                            )
+
+                            st.download_button(
+                                label="⬇️ 點擊下載 Excel",
+                                data=excel_content,
+                                file_name=f"報價單_{quotation_id}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                            )
+                            st.success("✅ Excel 已準備好下載！")
+
+                        except Exception as e:
+                            st.error(f"❌ 產生 Excel 失敗：{str(e)}")
+
+        elif export_format == "Google Sheets (線上連結)":
+            # Google Sheets export
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                share_mode = st.selectbox(
+                    "分享權限",
+                    options=["view", "edit"],
+                    format_func=lambda x: "僅檢視" if x == "view" else "可編輯",
+                    key="share_mode",
+                )
+                st.write("產生 Google Sheets 並取得分享連結")
+
+            with col2:
+                if st.button("產出 Google Sheets", type="primary", use_container_width=True):
+                    with st.spinner("正在產生 Google Sheets..."):
+                        try:
+                            result = client.export_to_google_sheets(
+                                quotation_id,
+                                include_photos=True,
+                                share_mode=share_mode,
+                            )
+
+                            if result.get("success") or result.get("data", {}).get("status") == "completed":
+                                data = result.get("data", {})
+                                # Try to get link from result or data
+                                shareable_link = data.get("shareable_link") or data.get("result", {}).get("shareable_link")
+
+                                if shareable_link:
+                                    st.success("✅ Google Sheets 已產生！")
+                                    st.markdown(f"**分享連結：**")
+                                    st.code(shareable_link, language=None)
+                                    st.markdown(f"[🔗 開啟 Google Sheets]({shareable_link})")
+                                else:
+                                    st.warning("⚠️ 無法取得分享連結")
+                            else:
+                                st.error(f"❌ 產生失敗：{result.get('message', '未知錯誤')}")
+
+                        except Exception as e:
+                            st.error(f"❌ 產生 Google Sheets 失敗：{str(e)}")
+
+        if not sheets_available:
+            st.caption("💡 提示：設定 Google API 憑證後可啟用 Google Sheets 匯出功能")
 
         st.markdown("---")
 

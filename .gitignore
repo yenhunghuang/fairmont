@@ -110,6 +110,10 @@ secrets/
 *.key
 *.pem
 credentials.json
+google-credentials.json
+*-credentials.json
+service-account*.json
+fairmont-quotation-*.json
 
 # OS
 .DS_Store

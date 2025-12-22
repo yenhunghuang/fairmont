@@ -360,3 +360,146 @@ class APIClient:
         except Exception as e:
             logger.error(f"Failed to list tasks: {e}")
             raise
+
+    def check_sheets_status(self) -> Dict[str, Any]:
+        """
+        Check Google Sheets integration status.
+
+        Returns:
+            Status information including enabled and available flags
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        try:
+            response = self.client.get(f"{self.base_url}/api/v1/sheets/status")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to check Sheets status: {e}")
+            raise
+
+    def export_to_google_sheets(
+        self,
+        quotation_id: str,
+        include_photos: bool = True,
+        share_mode: str = "view",
+        max_wait: int = 300,
+        poll_interval: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Export quotation to Google Sheets with automatic polling.
+
+        Args:
+            quotation_id: Quotation ID to export
+            include_photos: Whether to upload photos to Google Drive
+            share_mode: "view" for read-only, "edit" for editable
+            max_wait: Maximum wait time in seconds
+            poll_interval: Poll interval in seconds
+
+        Returns:
+            Result with spreadsheet_url and shareable_link
+
+        Raises:
+            TimeoutError: If generation takes too long
+            httpx.HTTPError: If request fails
+        """
+        try:
+            # Start export
+            response = self.client.post(
+                f"{self.base_url}/api/v1/quotations/{quotation_id}/sheets",
+                json={
+                    "include_photos": include_photos,
+                    "share_mode": share_mode,
+                },
+            )
+
+            # If already completed (200), return directly
+            if response.status_code == 200:
+                return response.json()
+
+            # If accepted (202), poll for completion
+            if response.status_code == 202:
+                data = response.json().get("data", {})
+                task_id = data.get("task_id")
+
+                if task_id:
+                    # Wait for task completion
+                    result = self.wait_for_completion(task_id, max_wait, poll_interval)
+                    return result
+                else:
+                    # No task ID, poll the sheets endpoint
+                    return self._poll_sheets_completion(
+                        quotation_id, max_wait, poll_interval
+                    )
+
+            response.raise_for_status()
+            return response.json()
+
+        except TimeoutError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to export to Google Sheets: {e}")
+            raise
+
+    def _poll_sheets_completion(
+        self,
+        quotation_id: str,
+        max_wait: int = 300,
+        poll_interval: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Poll for Google Sheets completion.
+
+        Args:
+            quotation_id: Quotation ID
+            max_wait: Maximum wait time in seconds
+            poll_interval: Poll interval in seconds
+
+        Returns:
+            Sheets result
+
+        Raises:
+            TimeoutError: If takes too long
+        """
+        elapsed = 0
+        while elapsed < max_wait:
+            response = self.client.get(
+                f"{self.base_url}/api/v1/quotations/{quotation_id}/sheets"
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("data", {}).get("status") == "completed":
+                    return result
+
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TimeoutError(
+            f"Google Sheets generation for quotation {quotation_id} "
+            f"did not complete within {max_wait} seconds"
+        )
+
+    def get_google_sheets_link(self, quotation_id: str) -> Dict[str, Any]:
+        """
+        Get existing Google Sheets link for quotation.
+
+        Args:
+            quotation_id: Quotation ID
+
+        Returns:
+            Sheets link information
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        try:
+            response = self.client.get(
+                f"{self.base_url}/api/v1/quotations/{quotation_id}/sheets"
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get Google Sheets link: {e}")
+            raise

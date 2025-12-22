@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-家具報價單自動化系統 - 上傳 BOQ（Bill of Quantities）PDF 檔案，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單。
+家具報價單自動化系統 - 上傳 BOQ（Bill of Quantities）PDF 檔案，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單或 Google Sheets。
 
 **API 基礎路徑**: `/api/v1/`（版本化 API）
 
@@ -48,7 +48,10 @@ streamlit run app.py
 
 ### 環境設定
 
-複製 `.env.example` 為 `.env`，設定 `GEMINI_API_KEY`。
+複製 `.env.example` 為 `.env`，設定必要環境變數：
+- `GEMINI_API_KEY`: Google Gemini AI API 金鑰（必要）
+- `GOOGLE_CREDENTIALS_PATH`: Google Service Account JSON 檔案路徑（選用，啟用 Sheets 匯出）
+- `GOOGLE_SHEETS_ENABLED`: 啟用 Google Sheets 功能（`true`/`false`）
 
 ### 非協商性標準（來自 constitution.md）
 
@@ -63,6 +66,7 @@ streamlit run app.py
 1. **上傳**: 使用者上傳 PDF → `upload.py` 路由 → 儲存檔案 + 建立 `SourceDocument`
 2. **解析**: `parse.py` 路由 → `PDFParserService` 呼叫 Gemini AI → 提取 `BOQItem` 列表 + 圖片（確定性匹配）
 3. **匯出**: `export.py` 路由 → `ExcelGeneratorService` → 產出惠而蒙格式 Excel
+4. **Sheets 匯出**: `sheets.py` 路由 → `GoogleSheetsGeneratorService` → 產出 Google Sheets（含 Drive 圖片上傳）
 
 ### 關鍵架構模式
 
@@ -86,11 +90,14 @@ backend/app/
 │   ├── pdf_parser.py               # PDF 解析（Gemini AI）
 │   ├── image_extractor.py          # PDF 圖片提取
 │   ├── image_matcher_deterministic.py  # 確定性圖片-項目匹配
-│   └── excel_generator.py          # Excel 產出（惠而蒙格式）
+│   ├── excel_generator.py          # Excel 產出（惠而蒙格式）
+│   ├── google_drive_service.py     # Google Drive 圖片上傳
+│   └── google_sheets_generator.py  # Google Sheets 產出
 ├── api/routes/                      # 所有路由使用 /api/v1/ 前綴
 │   ├── upload.py                   # POST /documents, GET /documents/{id}
 │   ├── parse.py                    # POST /documents/{id}/parsing
 │   ├── export.py                   # POST /quotations, GET /quotations/{id}/excel
+│   ├── sheets.py                   # POST/GET /quotations/{id}/sheets, GET /sheets/status
 │   ├── task.py                     # GET /tasks/{id}
 │   └── health.py                   # GET /health
 └── utils/                           # 錯誤處理、檔案管理、驗證
@@ -201,4 +208,7 @@ frontend/
 | `/api/v1/quotations` | POST | 從文件建立報價單 |
 | `/api/v1/quotations/{id}/items` | GET | 取得報價單項目 |
 | `/api/v1/quotations/{id}/excel` | GET | 下載 Excel（產出中回傳 202） |
+| `/api/v1/quotations/{id}/sheets` | POST | 匯出至 Google Sheets（背景任務） |
+| `/api/v1/quotations/{id}/sheets` | GET | 取得 Google Sheets 連結 |
+| `/api/v1/sheets/status` | GET | 檢查 Sheets 功能狀態 |
 | `/api/v1/tasks/{id}` | GET | 查詢背景任務狀態 |

@@ -31,12 +31,22 @@ class Quotation(BaseModel):
     items_with_photo: int = Field(0, ge=0, description="有圖片的項目數")
     items_from_floor_plan: int = Field(0, ge=0, description="從平面圖補充數量的項目數")
 
-    # 匯出狀態
+    # Excel 匯出狀態
     export_status: Literal["pending", "generating", "completed", "failed"] = Field(
-        "pending", description="匯出狀態"
+        "pending", description="Excel 匯出狀態"
     )
     export_path: Optional[str] = Field(None, description="Excel 檔案路徑")
-    export_error: Optional[str] = Field(None, description="匯出錯誤訊息")
+    export_error: Optional[str] = Field(None, description="Excel 匯出錯誤訊息")
+
+    # Google Sheets 匯出狀態
+    sheets_status: Literal["pending", "generating", "completed", "failed"] = Field(
+        "pending", description="Google Sheets 匯出狀態"
+    )
+    sheets_spreadsheet_id: Optional[str] = Field(None, description="Google Spreadsheet ID")
+    sheets_url: Optional[str] = Field(None, description="Google Sheets URL")
+    sheets_shareable_link: Optional[str] = Field(None, description="公開分享連結")
+    sheets_drive_folder_id: Optional[str] = Field(None, description="Google Drive 資料夾 ID")
+    sheets_error: Optional[str] = Field(None, description="Sheets 匯出錯誤訊息")
 
     def update_statistics(self) -> None:
         """更新統計資訊."""
