@@ -2,6 +2,7 @@
 
 import streamlit as st
 import os
+from styles import apply_poc_styles
 
 
 # Page configuration
@@ -11,6 +12,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# Apply POC styles
+apply_poc_styles()
 
 
 def init_session_state():
