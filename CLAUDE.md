@@ -14,39 +14,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # 安裝依賴
-cd backend && pip install -r requirements.txt
+cd backend
+pip install -r requirements.txt
 pip install -e ".[dev]"  # 安裝開發依賴
 
 # 啟動開發伺服器
-cd backend && uvicorn app.main:app --reload
+cd backend
+uvicorn app.main:app --reload
 
 # 執行測試
-cd backend && pytest                          # 所有測試（含覆蓋率）
-cd backend && pytest tests/unit/              # 單元測試
-cd backend && pytest tests/integration/       # 整合測試
-cd backend && pytest tests/contract/          # 契約測試（API）
-cd backend && pytest -k "test_specific_name"  # 執行特定測試
-cd backend && pytest -v --cov=app --cov-report=term-missing  # 覆蓋率報告
+cd backend
+pytest                              # 所有測試（含覆蓋率，預設開啟）
+pytest tests/unit/                  # 單元測試
+pytest tests/integration/           # 整合測試
+pytest tests/contract/              # 契約測試（API）
+pytest -k "test_specific_name"      # 執行特定測試
+pytest -v --cov-report=term-missing # 覆蓋率報告
 
 # 程式碼品質
-cd backend && ruff check .                    # 檢查
-cd backend && ruff check . --fix              # 自動修復
-cd backend && black .                         # 格式化（行寬 100）
+cd backend
+ruff check .           # 檢查
+ruff check . --fix     # 自動修復
+black .                # 格式化（行寬 100）
 ```
 
 ### 前端 (Streamlit)
 
 ```bash
-# 安裝依賴
-cd frontend && pip install -r requirements.txt
-
-# 啟動開發伺服器
-cd frontend && streamlit run app.py
+cd frontend
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
 ### 環境設定
 
 複製 `.env.example` 為 `.env`，設定 `GEMINI_API_KEY`。
+
+### 非協商性標準（來自 constitution.md）
+
+- **測試優先開發**: 編寫測試 → 驗證失敗 → 實作 → 驗證通過
+- **最低 80% 覆蓋率**（關鍵路徑 100%）
+- **API 回應時間**: < 200ms (p95)，PDF 解析 < 15 秒
 
 ## 架構概述
 
@@ -149,12 +157,6 @@ frontend/
 
 ## 關鍵檔案與模式
 
-### 重要服務
-
-- `pdf_parser.py`: 使用 Gemini 從 PDF 提取 BOQ 資料
-- `image_matcher_deterministic.py`: 使用確定性規則匹配圖片到項目（頁面偏移 + 面積過濾）
-- `excel_generator.py`: 從 BOQ 項目產出惠而蒙格式 Excel
-
 ### Response DTO 模式
 
 - `BOQItem`（內部）: 完整 23 欄位模型，含追蹤欄位
@@ -163,8 +165,15 @@ frontend/
 
 ### 狀態管理
 
-- 所有狀態存於 `store.py`（InMemoryStore 單例）
+- **後端**: 所有狀態存於 `store.py`（InMemoryStore 單例），使用 `cachetools.TTLCache`（1 小時 TTL）
+- **前端**: Streamlit `st.session_state` 管理工作流程（`upload` → `processing` → `download`）
 - 背景任務使用 `ProcessingTask` 模型追蹤狀態
+
+### 錯誤處理
+
+- `ErrorCode` 列舉定義所有錯誤碼（`utils/errors.py`）
+- 使用 `raise_error(ErrorCode.XXX, "訊息", status_code=404)` 拋出 API 錯誤
+- 錯誤訊息統一使用繁體中文（`ERROR_MESSAGES` 字典）
 
 ### 測試策略
 

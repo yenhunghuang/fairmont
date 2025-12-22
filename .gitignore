@@ -121,3 +121,4 @@ Thumbs.db
 backend/temp_files/
 backend/extracted_images/
 frontend/.streamlit/secrets.toml
+nul

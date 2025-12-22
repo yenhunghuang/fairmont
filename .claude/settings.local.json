@@ -15,7 +15,15 @@
       "Bash(grep:*)",
       "Bash(del \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\\\\app\\\\services\\\\image_filter.py\")",
       "Bash(pytest:*)",
-      "Bash(pip uninstall:*)"
+      "Bash(pip uninstall:*)",
+      "Bash(findstr:*)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\\\\tests\" -Recurse -Name)",
+      "Bash(Select-String -Pattern \"image|matcher|deterministic\" -SimpleMatch)",
+      "Bash(del \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\\\\tests\\\\unit\\\\test_image_matcher.py\")",
+      "Bash(ls -la \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\"\" | grep -E \"^d)",
+      "Bash(requirements)",
+      "Bash(setup:*)",
+      "Bash(ls -la \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\frontend\"\" | grep -E \"^d)"
     ]
   }
 }
