@@ -113,12 +113,28 @@ frontend/
 - **無 Redis/資料庫**: 檔案存於檔案系統，狀態存於記憶體（1 小時 TTL 快取）
 - **Gemini AI**: 需設定 `GEMINI_API_KEY`，僅用於 PDF 解析（使用 `gemini-1.5-flash` 模型）
 - **檔案限制**: 單檔最大 50MB，每次上傳最多 5 個檔案
-- **價格欄位**: Unit Rate、Amount、CBM 由使用者手動填寫，系統不產生
+- **價格欄位**: Unit Rate (H欄)、Amount (I欄) 留空由使用者填寫
 - **圖片匹配**: 僅使用確定性演算法，不使用 Vision API
 
-## 惠而蒙 Excel 格式
+## 惠而蒙 Excel 格式（共 15 欄）
 
-10 欄（A-J）：NO.、Item No.、Description、Photo、Dimension（WxDxH mm）、Qty、UOM、Note、Location、Materials Used/Specs
+| 欄 | 欄位名稱 | 說明 |
+|----|----------|------|
+| A | NO. | 序號（系統自動產生） |
+| B | Item no. | 項目編號 |
+| C | Description | 品名描述 |
+| D | Photo | 圖片（Base64 嵌入） |
+| E | Dimension WxDxH (mm) | 尺寸規格 |
+| F | Qty | 數量 |
+| G | UOM | 單位 |
+| H | Unit Rate (USD) | 單價（**留空**，使用者填寫） |
+| I | Amount (USD) | 金額（**留空**，使用者填寫） |
+| J | Unit CBM | 單位材積 |
+| K | Total CBM | 總材積（公式 =F*J） |
+| L | Note | 備註 |
+| M | Location | 位置 |
+| N | Materials Used / Specs | 材料/規格 |
+| O | Brand | 品牌 |
 
 範例檔案：`docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx`
 
