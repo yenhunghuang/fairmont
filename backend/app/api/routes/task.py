@@ -11,7 +11,7 @@ from ...utils import log_error
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["Task"])
+router = APIRouter(prefix="/api/v1", tags=["Task"])
 
 
 @router.get(

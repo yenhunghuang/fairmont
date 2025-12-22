@@ -197,7 +197,7 @@ class Quotation(BaseModel):
         """更新統計資訊"""
         self.total_items = len(self.items)
         self.items_with_qty = sum(1 for item in self.items if item.qty is not None)
-        self.items_with_photo = sum(1 for item in self.items if item.photo_path)
+        self.items_with_photo = sum(1 for item in self.items if item.photo_base64)
         self.items_from_floor_plan = sum(
             1 for item in self.items if item.qty_source == "floor_plan"
         )
@@ -328,7 +328,7 @@ class ExtractedImage(BaseModel):
 │                              BOQItem                                     │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  id, item_no, description                                       │    │
-│  │  photo_path ────────────────────────────────────┐               │    │
+│  │  photo_base64 ──────────────────────────────────┐               │    │
 │  │  dimension, qty, uom, location, materials_specs  │               │    │
 │  │  source_document_id ────────────────────────────│───┐           │    │
 │  │  source_type, source_page, source_location       │   │           │    │

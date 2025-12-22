@@ -15,7 +15,7 @@ class TestUploadEndpoint:
         """Test successful single PDF upload."""
         with open(sample_pdf_file, "rb") as f:
             response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
@@ -37,7 +37,7 @@ class TestUploadEndpoint:
 
         with open(sample_pdf_file, "rb") as f1, open(second_file, "rb") as f2:
             response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files=[
                     ("files", ("test.pdf", f1, "application/pdf")),
                     ("files", ("test2.pdf", f2, "application/pdf")),
@@ -56,7 +56,7 @@ class TestUploadEndpoint:
 
         with open(empty_file, "rb") as f:
             response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": ("empty.pdf", f, "application/pdf")},
             )
 
@@ -72,7 +72,7 @@ class TestUploadEndpoint:
 
         with open(txt_file, "rb") as f:
             response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": ("test.txt", f, "text/plain")},
             )
 
@@ -94,7 +94,7 @@ class TestUploadEndpoint:
                 ("files", (f"test{i}.pdf", files_to_upload[i], "application/pdf"))
                 for i in range(6)
             ]
-            response = client.post("/api/documents", files=file_tuples)
+            response = client.post("/api/v1/documents", files=file_tuples)
 
             assert response.status_code == 400
             data = response.json()
@@ -107,7 +107,7 @@ class TestUploadEndpoint:
         """Test upload response has correct structure."""
         with open(sample_pdf_file, "rb") as f:
             response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
@@ -131,28 +131,30 @@ class TestUploadEndpoint:
 
 
 class TestDocumentListingEndpoint:
-    """Contract tests for GET /api/documents endpoint (US2)."""
+    """Contract tests for GET /api/v1/documents endpoint (US2)."""
 
     def test_list_documents_empty(self, client: TestClient):
         """Test listing documents when none exist."""
-        response = client.get("/api/documents")
+        response = client.get("/api/v1/documents")
 
         assert response.status_code == 200
         data = response.json()
-        assert "documents" in data or "data" in data
-        assert "total" in data or (isinstance(data.get("data"), list) and len(data["data"]) == 0)
+        assert data.get("success") is True
+        assert "data" in data
+        assert "documents" in data["data"]
+        assert "total" in data["data"]
 
     def test_list_documents_after_upload(self, client: TestClient, sample_pdf_file: Path):
         """Test listing documents after upload."""
         # Upload a document
         with open(sample_pdf_file, "rb") as f:
             client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         # List documents
-        response = client.get("/api/documents")
+        response = client.get("/api/v1/documents")
 
         assert response.status_code == 200
         data = response.json()
@@ -161,11 +163,11 @@ class TestDocumentListingEndpoint:
 
 
 class TestDocumentDetailEndpoint:
-    """Contract tests for GET /api/documents/{document_id} endpoint (US2)."""
+    """Contract tests for GET /api/v1/documents/{document_id} endpoint (US2)."""
 
     def test_get_document_not_found(self, client: TestClient):
         """Test getting non-existent document."""
-        response = client.get("/api/documents/invalid-id")
+        response = client.get("/api/v1/documents/invalid-id")
 
         assert response.status_code == 404
         data = response.json()
@@ -176,14 +178,14 @@ class TestDocumentDetailEndpoint:
         # Upload a document
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Get document
-        response = client.get(f"/api/documents/{doc_id}")
+        response = client.get(f"/api/v1/documents/{doc_id}")
 
         assert response.status_code == 200
         data = response.json()

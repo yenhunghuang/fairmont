@@ -50,7 +50,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
 
-  /api/documents:
+  /api/v1/documents:
     post:
       tags:
         - Upload
@@ -139,7 +139,7 @@ paths:
                   total:
                     type: integer
 
-  /api/documents/{document_id}:
+  /api/v1/documents/{document_id}:
     get:
       tags:
         - Upload
@@ -182,7 +182,7 @@ paths:
         '404':
           description: 找不到文件
 
-  /api/documents/{document_id}/parsing:
+  /api/v1/documents/{document_id}/parsing:
     post:
       tags:
         - Parse
@@ -220,7 +220,7 @@ paths:
         '404':
           description: 找不到文件
 
-  /api/documents/{document_id}/parse-result:
+  /api/v1/documents/{document_id}/parse-result:
     get:
       tags:
         - Parse
@@ -252,7 +252,7 @@ paths:
         '404':
           description: 找不到文件或解析尚未完成
 
-  /api/floor-plan-analyses:
+  /api/v1/floor-plan-analyses:
     post:
       tags:
         - Parse
@@ -289,7 +289,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TaskResponse'
 
-  /api/quotations:
+  /api/v1/quotations:
     post:
       tags:
         - Export
@@ -321,7 +321,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Quotation'
 
-  /api/quotations/{quotation_id}:
+  /api/v1/quotations/{quotation_id}:
     get:
       tags:
         - Export
@@ -339,7 +339,7 @@ paths:
         '404':
           description: 找不到報價單
 
-  /api/quotations/{quotation_id}/items:
+  /api/v1/quotations/{quotation_id}/items:
     get:
       tags:
         - Export
@@ -394,7 +394,7 @@ paths:
         '200':
           description: 更新成功
 
-  /api/quotations/{quotation_id}/excel:
+  /api/v1/quotations/{quotation_id}/excel:
     get:
       tags:
         - Export
@@ -435,7 +435,7 @@ paths:
         '404':
           description: 找不到報價單
 
-  /api/tasks/{task_id}:
+  /api/v1/tasks/{task_id}:
     get:
       tags:
         - Task
@@ -454,7 +454,7 @@ paths:
         '404':
           description: 找不到任務
 
-  /api/tasks:
+  /api/v1/tasks:
     get:
       tags:
         - Task
@@ -486,7 +486,7 @@ paths:
                   total:
                     type: integer
 
-  /api/images/{image_id}:
+  /api/v1/images/{image_id}:
     get:
       tags:
         - Upload
@@ -681,6 +681,27 @@ components:
           type: integer
           description: 來源頁碼（內部使用）
           nullable: true
+        source_type:
+          type: string
+          enum: [boq, floor_plan, manual]
+          description: 資料來源類型（內部使用）
+        qty_verified:
+          type: boolean
+          description: 數量是否已核對（內部使用）
+          default: false
+        qty_source:
+          type: string
+          enum: [boq, floor_plan]
+          description: 數量資料來源（內部使用）
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: 建立時間
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新時間
 
     ExtractedImage:
       type: object

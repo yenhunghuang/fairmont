@@ -16,14 +16,14 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        response = client.post(f"/api/documents/{doc_id}/parse")
+        response = client.post(f"/api/v1/documents/{doc_id}/parsing")
 
         assert response.status_code == 202
         data = response.json()
@@ -36,7 +36,7 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
@@ -44,7 +44,7 @@ class TestParseStartEndpoint:
 
         # Start parsing with options
         response = client.post(
-            f"/api/documents/{doc_id}/parse",
+            f"/api/v1/documents/{doc_id}/parsing",
             json={
                 "extract_images": True,
                 "target_categories": ["活動家具"],
@@ -58,7 +58,7 @@ class TestParseStartEndpoint:
 
     def test_start_parsing_document_not_found(self, client: TestClient):
         """Test parsing non-existent document."""
-        response = client.post("/api/documents/invalid-id/parse")
+        response = client.post("/api/v1/documents/invalid-id/parsing")
 
         assert response.status_code == 404
         data = response.json()
@@ -69,14 +69,14 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        response = client.post(f"/api/documents/{doc_id}/parse")
+        response = client.post(f"/api/v1/documents/{doc_id}/parsing")
 
         assert response.status_code == 202
         data = response.json()
@@ -97,28 +97,31 @@ class TestParseResultEndpoint:
     """Contract tests for GET /api/parse/{document_id}/result endpoint."""
 
     def test_get_parse_result_not_ready(self, client: TestClient, sample_pdf_file: Path):
-        """Test getting parse result when not ready."""
-        # Upload first
+        """Test getting parse result when not ready or already complete."""
+        # Upload first (auto-parsing is triggered)
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
-        # Get result immediately (should not be ready)
-        response = client.get(f"/api/documents/{doc_id}/parse-result")
+        # Get result (may be ready or still processing)
+        response = client.get(f"/api/v1/documents/{doc_id}/parse-result")
 
-        # Either 404 or 202 (not ready) are acceptable
-        assert response.status_code in [202, 404, 400]
+        # Valid response codes:
+        # - 200: parsing already completed
+        # - 202: still processing
+        # - 404/400: document not parsed yet or invalid
+        assert response.status_code in [200, 202, 404, 400]
         data = response.json()
-        # Should have proper error or pending status
+        # Should have proper response structure
         assert "data" in data or "success" in data
 
     def test_get_parse_result_not_found(self, client: TestClient):
         """Test getting result for non-existent document."""
-        response = client.get("/api/documents/invalid-id/parse-result")
+        response = client.get("/api/v1/documents/invalid-id/parse-result")
 
         assert response.status_code == 404
         data = response.json()
@@ -129,17 +132,17 @@ class TestParseResultEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        client.post(f"/api/documents/{doc_id}/parse")
+        client.post(f"/api/v1/documents/{doc_id}/parsing")
 
         # Attempt to get result
-        response = client.get(f"/api/documents/{doc_id}/parse-result")
+        response = client.get(f"/api/v1/documents/{doc_id}/parse-result")
 
         data = response.json()
 

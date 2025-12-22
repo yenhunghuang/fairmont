@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.store import InMemoryStore
 
+# API version prefix
+API_PREFIX = "/api/v1"
+
 
 @pytest.fixture(scope="session")
 def event_loop():

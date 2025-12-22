@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Gemini API Configuration
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-Pro"
+    gemini_model: str = "gemini-3-flash-preview"
 
     # Backend Configuration
     backend_host: str = "localhost"

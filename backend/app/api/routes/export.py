@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from ...models import Quotation, BOQItem, ProcessingTask, APIResponse
+from ...models import Quotation, BOQItem, ProcessingTask, APIResponse, BOQItemResponse
 from ...api.dependencies import get_store_dependency
 from ...services.excel_generator import get_excel_generator
 from ...store import InMemoryStore
@@ -14,7 +14,7 @@ from ...utils import log_error
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["Export"])
+router = APIRouter(prefix="/api/v1", tags=["Export"])
 
 
 class CreateQuotationRequest(BaseModel):
@@ -133,7 +133,7 @@ async def get_quotation_items(
             "success": True,
             "message": f"成功取得 {len(quotation.items)} 個項目",
             "data": {
-                "items": [item.model_dump() for item in quotation.items],
+                "items": [BOQItemResponse.from_boq_item(item).model_dump() for item in quotation.items],
                 "total": len(quotation.items),
             },
         }

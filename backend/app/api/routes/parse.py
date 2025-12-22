@@ -6,17 +6,17 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 
-from ...models import ProcessingTask, APIResponse
+from ...models import ProcessingTask, APIResponse, BOQItemResponse
 from ...api.dependencies import get_store_dependency
 from ...services.pdf_parser import get_pdf_parser
 from ...services.image_extractor import get_image_extractor
-from ...services.image_matcher import get_image_matcher
+from ...services.image_matcher_deterministic import get_deterministic_image_matcher
 from ...store import InMemoryStore
 from ...utils import log_error
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["Parse"])
+router = APIRouter(prefix="/api/v1", tags=["Parse"])
 
 
 class ParseRequest(BaseModel):
@@ -128,16 +128,16 @@ async def _parse_pdf_background(
             )
 
             if images_with_bytes and boq_items:
-                task.update_progress(75, "正在使用 AI 驗證圖片...")
+                task.update_progress(75, "正在匹配圖片到項目...")
 
-                # Use Gemini Vision to intelligently match images to items
-                # with product sample validation (excludes logos, design images, etc.)
-                matcher = get_image_matcher()
+                # Use deterministic algorithm: match based on page location + image size
+                # Rule-based approach: items on page N → images on page N+1, select largest image
+                # Automatically excludes logos/icons (small area) and selects product samples
+                matcher = get_deterministic_image_matcher()
                 image_to_item_map = await matcher.match_images_to_items(
                     images_with_bytes,
                     boq_items,
-                    validate_product_images=True,
-                    min_confidence=0.6,
+                    target_page_offset=1,
                 )
 
                 # Apply matches - convert to Base64 and assign to items
@@ -153,7 +153,7 @@ async def _parse_pdf_background(
                             item.photo_base64 = base64_str
                             matched_count += 1
 
-                logger.info(f"Matched {matched_count} images to items using Gemini AI")
+                logger.info(f"Matched {matched_count} images to items using deterministic algorithm (page location + image size)")
 
         task.update_progress(80, "正在儲存結果...")
 
@@ -246,7 +246,7 @@ async def get_parse_result(
             "message": f"成功取得解析結果：{len(items)} 個項目",
             "data": {
                 "document_id": document_id,
-                "items": [item.model_dump() for item in items],
+                "items": [BOQItemResponse.from_boq_item(item).model_dump() for item in items],
                 "images": [image.model_dump() for image in images],
                 "statistics": {
                     "total_items": len(items),

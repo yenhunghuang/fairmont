@@ -9,11 +9,11 @@ pytestmark = pytest.mark.contract
 
 
 class TestTaskStatusEndpoint:
-    """Contract tests for GET /api/tasks/{task_id} endpoint."""
+    """Contract tests for GET /api/v1/tasks/{task_id} endpoint."""
 
     def test_get_task_status_not_found(self, client: TestClient):
         """Test getting non-existent task."""
-        response = client.get("/api/tasks/invalid-id")
+        response = client.get("/api/v1/tasks/invalid-id")
 
         assert response.status_code == 404
         data = response.json()
@@ -24,17 +24,17 @@ class TestTaskStatusEndpoint:
         # Upload and start parsing
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
-        parse_response = client.post(f"/api/documents/{doc_id}/parse")
+        parse_response = client.post(f"/api/v1/documents/{doc_id}/parsing")
         task_id = parse_response.json()["data"].get("task_id") or parse_response.json()["data"].get("id")
 
         # Get task status
-        response = client.get(f"/api/tasks/{task_id}")
+        response = client.get(f"/api/v1/tasks/{task_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -46,17 +46,17 @@ class TestTaskStatusEndpoint:
         # Upload and start parsing
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
-        parse_response = client.post(f"/api/documents/{doc_id}/parse")
+        parse_response = client.post(f"/api/v1/documents/{doc_id}/parsing")
         task_id = parse_response.json()["data"].get("task_id") or parse_response.json()["data"].get("id")
 
         # Get task status
-        response = client.get(f"/api/tasks/{task_id}")
+        response = client.get(f"/api/v1/tasks/{task_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -78,17 +78,17 @@ class TestTaskStatusEndpoint:
         # Upload and start parsing
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
-        parse_response = client.post(f"/api/documents/{doc_id}/parse")
+        parse_response = client.post(f"/api/v1/documents/{doc_id}/parsing")
         task_id = parse_response.json()["data"].get("task_id") or parse_response.json()["data"].get("id")
 
         # Get task status immediately
-        response = client.get(f"/api/tasks/{task_id}")
+        response = client.get(f"/api/v1/tasks/{task_id}")
 
         assert response.status_code == 200
         task = response.json()["data"]
@@ -100,17 +100,17 @@ class TestTaskStatusEndpoint:
         # Upload and start parsing
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
-        parse_response = client.post(f"/api/documents/{doc_id}/parse")
+        parse_response = client.post(f"/api/v1/documents/{doc_id}/parsing")
         task_id = parse_response.json()["data"].get("task_id") or parse_response.json()["data"].get("id")
 
         # Get task status
-        response = client.get(f"/api/tasks/{task_id}")
+        response = client.get(f"/api/v1/tasks/{task_id}")
 
         task = response.json()["data"]
         # Message should exist (even if status is pending)
@@ -119,36 +119,38 @@ class TestTaskStatusEndpoint:
 
 
 class TestTaskListEndpoint:
-    """Contract tests for GET /api/tasks endpoint."""
+    """Contract tests for GET /api/v1/tasks endpoint."""
 
     def test_list_tasks_empty(self, client: TestClient):
         """Test listing tasks when none exist."""
-        response = client.get("/api/tasks")
+        response = client.get("/api/v1/tasks")
 
         assert response.status_code == 200
         data = response.json()
-        assert "tasks" in data or "data" in data
-        # Should be empty list or have structure
-        assert isinstance(data.get("tasks", data.get("data", [])), list)
+        assert data.get("success") is True
+        assert "data" in data
+        assert "tasks" in data["data"]
+        assert isinstance(data["data"]["tasks"], list)
 
     def test_list_tasks_after_creating(self, client: TestClient, sample_pdf_file: Path):
         """Test listing tasks after creating some."""
         # Upload and start parsing to create a task
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/documents",
+                "/api/v1/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
-        client.post(f"/api/documents/{doc_id}/parse")
+        client.post(f"/api/v1/documents/{doc_id}/parsing")
 
         # List tasks
-        response = client.get("/api/tasks")
+        response = client.get("/api/v1/tasks")
 
         assert response.status_code == 200
         data = response.json()
-        tasks = data.get("tasks") or data.get("data")
+        assert data.get("success") is True
+        tasks = data["data"]["tasks"]
         assert isinstance(tasks, list)
         # Should have at least one task
         if len(tasks) > 0:

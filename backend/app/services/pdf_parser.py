@@ -191,6 +191,7 @@ class PDFParserService:
 ```json
 [
   {{
+    "source_page": 項目所在的頁碼 (1-indexed),
     "item_no": "項目編號 (B欄: Item no.)",
     "description": "項目描述 (C欄: Description)",
     "dimension": "尺寸 WxDxH mm (E欄: Dimension)",
@@ -206,6 +207,7 @@ class PDFParserService:
 ```
 
 欄位說明：
+- source_page: 項目在 PDF 中的頁碼，必須根據文本中的 "--- Page N ---" 標記來判斷
 - item_no: 項目編號，如 "DLX-100"、"FUR-001"
 - description: 品名描述，如 "King Bed"、"會議桌"
 - dimension: 尺寸規格，格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
@@ -242,6 +244,10 @@ PDF 內容：
             boq_items = []
             for idx, item_data in enumerate(items_data, 1):
                 try:
+                    # Extract source_page from Gemini response
+                    # This enables the deterministic image matching algorithm
+                    source_page = self._parse_source_page(item_data.get("source_page"))
+
                     boq_item = BOQItem(
                         no=idx,
                         item_no=item_data.get("item_no", f"ITEM-{idx}"),
@@ -255,6 +261,7 @@ PDF 內容：
                         materials_specs=item_data.get("materials_specs"),
                         brand=item_data.get("brand"),
                         source_document_id=document_id,
+                        source_page=source_page,
                         source_type="boq",
                     )
                     boq_items.append(boq_item)
@@ -295,6 +302,32 @@ PDF 內容：
         if isinstance(qty_value, str):
             try:
                 return float(qty_value)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _parse_source_page(page_value: Any) -> Optional[int]:
+        """
+        Parse source page number from Gemini response.
+
+        Args:
+            page_value: Page number (int, float, or string)
+
+        Returns:
+            Page number (1-indexed) or None if invalid
+        """
+        if page_value is None:
+            return None
+        if isinstance(page_value, int) and page_value >= 1:
+            return page_value
+        if isinstance(page_value, float):
+            page_int = int(page_value)
+            return page_int if page_int >= 1 else None
+        if isinstance(page_value, str):
+            try:
+                page_int = int(page_value.strip())
+                return page_int if page_int >= 1 else None
             except ValueError:
                 return None
         return None
