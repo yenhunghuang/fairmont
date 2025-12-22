@@ -24,7 +24,8 @@ class PDFParserService:
             self.genai = genai
             if settings.gemini_api_key:
                 genai.configure(api_key=settings.gemini_api_key)
-            self.model = genai.GenerativeModel("gemini-1.5-flash")
+            self.model = genai.GenerativeModel(settings.gemini_model)
+            logger.info(f"Gemini model initialized: {settings.gemini_model}")
         except ImportError:
             logger.warning("google-generativeai not installed")
             self.genai = None
@@ -173,7 +174,7 @@ class PDFParserService:
         pdf_text: str,
         target_categories: Optional[List[str]] = None,
     ) -> str:
-        """Create prompt for Gemini to extract BOQ items."""
+        """Create prompt for Gemini to extract BOQ items (15 columns per Excel template)."""
         categories_str = (
             f"只關注這些類別：{', '.join(target_categories)}"
             if target_categories
@@ -185,22 +186,36 @@ class PDFParserService:
 
 {categories_str}
 
-針對每個項目，請按照以下 JSON 格式提取：
+針對每個項目，請按照以下 JSON 格式提取（對應惠而蒙格式 15 欄）：
 
 ```json
 [
   {{
-    "item_no": "項目編號",
-    "description": "項目描述",
-    "dimension": "尺寸（WxDxH mm）",
-    "qty": 數量或 null,
-    "uom": "單位（如：ea, m, set）",
-    "note": "備註或說明",
-    "location": "位置/區域",
-    "materials_specs": "材料/規格說明"
+    "item_no": "項目編號 (B欄: Item no.)",
+    "description": "項目描述 (C欄: Description)",
+    "dimension": "尺寸 WxDxH mm (E欄: Dimension)",
+    "qty": 數量或 null (F欄: Qty),
+    "uom": "單位如 ea, m, set (G欄: UOM)",
+    "unit_cbm": 單位材積或 null (J欄: Unit CBM),
+    "note": "備註或說明 (L欄: Note)",
+    "location": "位置/區域 (M欄: Location)",
+    "materials_specs": "材料/規格說明 (N欄: Materials Used / Specs)",
+    "brand": "品牌或 null (O欄: Brand)"
   }}
 ]
 ```
+
+欄位說明：
+- item_no: 項目編號，如 "DLX-100"、"FUR-001"
+- description: 品名描述，如 "King Bed"、"會議桌"
+- dimension: 尺寸規格，格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
+- qty: 數量，數字或 null
+- uom: 單位，如 "ea"（個）、"m"（公尺）、"set"（組）
+- unit_cbm: 單位材積（立方公尺），數字或 null
+- note: 備註說明
+- location: 安裝位置/區域，如 "King DLX (A/B)"、"會議室"
+- materials_specs: 使用材料/規格，如 "Vinyl: DLX-500 Taupe"
+- brand: 品牌名稱，如 "Fairmont"，若無則為 null
 
 PDF 內容：
 {pdf_text}
@@ -210,7 +225,7 @@ PDF 內容：
         return prompt
 
     def _parse_gemini_response(self, response: Any, document_id: str) -> List[BOQItem]:
-        """Parse Gemini response and create BOQItem objects."""
+        """Parse Gemini response and create BOQItem objects (15 columns)."""
         try:
             response_text = response.text
             # Extract JSON from response
@@ -234,9 +249,11 @@ PDF 內容：
                         dimension=item_data.get("dimension"),
                         qty=self._parse_qty(item_data.get("qty")),
                         uom=item_data.get("uom"),
+                        unit_cbm=self._parse_float(item_data.get("unit_cbm")),
                         note=item_data.get("note"),
                         location=item_data.get("location"),
                         materials_specs=item_data.get("materials_specs"),
+                        brand=item_data.get("brand"),
                         source_document_id=document_id,
                         source_type="boq",
                     )
@@ -251,6 +268,22 @@ PDF 內容：
         except Exception as e:
             logger.error(f"Error parsing Gemini response: {e}")
             return []
+
+    @staticmethod
+    def _parse_float(value: Any) -> Optional[float]:
+        """Parse float value from various formats."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                # Remove common formatting characters
+                cleaned = value.replace(",", "").strip()
+                return float(cleaned) if cleaned else None
+            except ValueError:
+                return None
+        return None
 
     @staticmethod
     def _parse_qty(qty_value: Any) -> Optional[float]:

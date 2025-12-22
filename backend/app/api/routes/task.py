@@ -1,10 +1,12 @@
 """Task status API routes."""
 
 import logging
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 
 from ...models import APIResponse
-from ...api.dependencies import StoreDep
+from ...api.dependencies import get_store_dependency
+from ...store import InMemoryStore
 from ...utils import log_error
 
 logger = logging.getLogger(__name__)
@@ -13,13 +15,13 @@ router = APIRouter(prefix="/api", tags=["Task"])
 
 
 @router.get(
-    "/task/{task_id}",
+    "/tasks/{task_id}",
     response_model=APIResponse,
     summary="取得任務狀態",
 )
 async def get_task_status(
     task_id: str,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     取得後台任務的狀態與進度.
@@ -49,4 +51,55 @@ async def get_task_status(
 
     except Exception as e:
         log_error(e, context=f"Get task status: {task_id}")
+        raise
+
+
+@router.get(
+    "/tasks",
+    response_model=APIResponse,
+    summary="取得任務列表",
+)
+async def list_tasks(
+    limit: int = Query(20, le=100, description="回傳數量限制"),
+    status: Optional[str] = Query(None, regex="^(pending|processing|completed|failed)$", description="篩選狀態"),
+    store: InMemoryStore = Depends(get_store_dependency),
+) -> dict:
+    """
+    取得所有任務列表.
+
+    - **limit**: 回傳數量限制（最多 100）
+    - **status**: 篩選狀態（pending/processing/completed/failed）
+    """
+    try:
+        tasks = store.list_tasks()
+
+        # Filter by status
+        if status:
+            tasks = [t for t in tasks if t.status == status]
+
+        # Apply limit
+        tasks = tasks[:limit]
+
+        return {
+            "success": True,
+            "message": f"取得 {len(tasks)} 個任務",
+            "data": {
+                "tasks": [
+                    {
+                        "task_id": t.task_id,
+                        "task_type": t.task_type,
+                        "status": t.status,
+                        "progress": t.progress,
+                        "message": t.message,
+                        "created_at": t.created_at.isoformat() if t.created_at else None,
+                        "started_at": t.started_at.isoformat() if t.started_at else None,
+                        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                    }
+                    for t in tasks
+                ],
+                "total": len(tasks),
+            },
+        }
+    except Exception as e:
+        log_error(e, context="List tasks")
         raise

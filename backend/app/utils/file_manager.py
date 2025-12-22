@@ -56,13 +56,19 @@ class FileManager:
                 f"檔案保存失敗：{str(e)}",
             )
 
-    def save_extracted_image(self, image_content: bytes, filename: str) -> str:
+    def save_extracted_image(
+        self,
+        image_content: bytes,
+        filename: str,
+        document_id: Optional[str] = None,
+    ) -> str:
         """
         Save extracted image to images directory.
 
         Args:
             image_content: Image content as bytes
             filename: Image filename
+            document_id: Optional document ID to create subdirectory
 
         Returns:
             Path to saved image
@@ -71,7 +77,14 @@ class FileManager:
             APIError: If image save fails
         """
         try:
-            image_path = self.images_dir / filename
+            # Create subdirectory for document if document_id provided
+            if document_id:
+                target_dir = self.images_dir / document_id
+                target_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                target_dir = self.images_dir
+
+            image_path = target_dir / filename
             image_path.write_bytes(image_content)
             logger.info(f"Image saved: {image_path}")
             return str(image_path)

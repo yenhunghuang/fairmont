@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ...models import Quotation, BOQItem, ProcessingTask, APIResponse
-from ...api.dependencies import StoreDep, FileManagerDep
+from ...api.dependencies import get_store_dependency
 from ...services.excel_generator import get_excel_generator
 from ...store import InMemoryStore
 from ...utils import log_error
@@ -35,14 +35,14 @@ class UpdateItemsRequest(BaseModel):
 
 
 @router.post(
-    "/quotation",
+    "/quotations",
     status_code=201,
     response_model=APIResponse,
     summary="建立報價單",
 )
 async def create_quotation(
     request: CreateQuotationRequest,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     從已解析的文件建立報價單.
@@ -93,13 +93,13 @@ async def create_quotation(
 
 
 @router.get(
-    "/quotation/{quotation_id}",
+    "/quotations/{quotation_id}",
     response_model=APIResponse,
     summary="取得報價單",
 )
 async def get_quotation(
     quotation_id: str,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """取得報價單詳細資訊."""
     try:
@@ -117,13 +117,13 @@ async def get_quotation(
 
 
 @router.get(
-    "/quotation/{quotation_id}/items",
+    "/quotations/{quotation_id}/items",
     response_model=APIResponse,
     summary="取得報價單項目列表",
 )
 async def get_quotation_items(
     quotation_id: str,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """取得報價單中的所有項目."""
     try:
@@ -144,14 +144,14 @@ async def get_quotation_items(
 
 
 @router.patch(
-    "/quotation/{quotation_id}/items",
+    "/quotations/{quotation_id}/items",
     response_model=APIResponse,
     summary="更新報價單項目",
 )
 async def update_quotation_items(
     quotation_id: str,
     request: UpdateItemsRequest,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     批次更新報價單中的項目資料.
@@ -204,29 +204,55 @@ async def update_quotation_items(
         raise
 
 
-@router.post(
-    "/export/{quotation_id}/excel",
-    status_code=202,
-    response_model=APIResponse,
-    summary="產出 Excel 報價單",
+@router.get(
+    "/quotations/{quotation_id}/excel",
+    summary="取得 Excel 報價單",
 )
-async def export_excel(
+async def get_quotation_excel(
     quotation_id: str,
-    request: Optional[ExportExcelRequest] = None,
-    store: StoreDep = Depends(),
-    background_tasks: BackgroundTasks = None,
-) -> dict:
+    background_tasks: BackgroundTasks,
+    include_photos: bool = True,
+    photo_height_cm: float = 3.0,
+    store: InMemoryStore = Depends(get_store_dependency),
+):
     """
-    將報價單匯出為惠而蒙格式 Excel 檔案.
+    取得報價單的 Excel 檔案（冪等操作）.
 
-    - 為非同步操作
-    - 完成後可下載檔案
+    **行為**：
+    - 如果 Excel 已存在：直接返回檔案（200 OK）
+    - 如果正在產出中：返回 202 Accepted
+    - 如果尚未產出：觸發產出並返回 202 Accepted
+
+    客戶端應輪詢此端點直到收到 200 OK 和檔案內容。
     """
     try:
         # Get quotation
         quotation = store.get_quotation(quotation_id)
 
-        # Create task
+        # If already completed, return file directly
+        if quotation.export_status == "completed" and quotation.export_path:
+            return FileResponse(
+                path=quotation.export_path,
+                filename=f"quotation_{quotation.title}.xlsx",
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+        # If currently generating, return 202
+        if quotation.export_status == "generating":
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "success": False,
+                    "message": "Excel 正在產出中，請稍後重試",
+                    "data": {
+                        "status": "generating",
+                        "quotation_id": quotation_id,
+                    }
+                }
+            )
+
+        # If not started or failed, trigger generation
         task = ProcessingTask(
             task_type="generate_excel",
             status="pending",
@@ -237,31 +263,35 @@ async def export_excel(
         store.add_task(task)
 
         # Schedule export
-        include_photos = request.include_photos if request else True
-        photo_height_cm = request.photo_height_cm if request else 3.0
+        background_tasks.add_task(
+            _export_excel_background,
+            quotation_id=quotation_id,
+            task_id=task.task_id,
+            store=store,
+            include_photos=include_photos,
+            photo_height_cm=photo_height_cm,
+        )
 
-        if background_tasks:
-            background_tasks.add_task(
-                _export_excel_background,
-                quotation_id=quotation_id,
-                task_id=task.task_id,
-                store=store,
-                include_photos=include_photos,
-                photo_height_cm=photo_height_cm,
-            )
+        # Update quotation status
+        quotation.export_status = "generating"
+        store.update_quotation(quotation)
 
-        return {
-            "success": True,
-            "message": "Excel 匯出任務已建立",
-            "data": {
-                "task_id": task.task_id,
-                "status": task.status,
-                "message": task.message,
-            },
-        }
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=202,
+            content={
+                "success": False,
+                "message": "Excel 產出已啟動，請稍後重試此端點下載",
+                "data": {
+                    "task_id": task.task_id,
+                    "status": "generating",
+                    "quotation_id": quotation_id,
+                }
+            }
+        )
 
     except Exception as e:
-        log_error(e, context=f"Export Excel: {quotation_id}")
+        log_error(e, context=f"Get quotation Excel: {quotation_id}")
         raise
 
 
@@ -328,31 +358,3 @@ async def _export_excel_background(
             pass
 
 
-@router.get(
-    "/export/{quotation_id}/download",
-    summary="下載 Excel 檔案",
-)
-async def download_excel(
-    quotation_id: str,
-    store: StoreDep = Depends(),
-):
-    """下載已產出的 Excel 報價單檔案."""
-    try:
-        quotation = store.get_quotation(quotation_id)
-
-        if quotation.export_status != "completed" or not quotation.export_path:
-            return {
-                "success": False,
-                "message": "Excel 檔案尚未產出，請先執行匯出",
-            }
-
-        # Return file
-        return FileResponse(
-            path=quotation.export_path,
-            filename=f"quotation_{quotation.title}.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    except Exception as e:
-        log_error(e, context=f"Download Excel: {quotation_id}")
-        raise

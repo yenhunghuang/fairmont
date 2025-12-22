@@ -7,6 +7,8 @@
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
+**Updated**: 2025-12-19 - Excel 輸出格式更新為完全比照範本 15 欄，圖片使用 Base64 編碼
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
@@ -17,6 +19,17 @@
 
 - **Web app**: `backend/` for FastAPI, `frontend/` for Streamlit
 - See plan.md for detailed project structure
+
+## Key Changes from Previous Version
+
+| 變更項目 | 舊版 | 新版 |
+|----------|------|------|
+| Excel 欄位數 | 10 欄 | 15 欄（完全比照範本） |
+| 圖片儲存 | `photo_path` (檔案路徑) | `photo_base64` (Base64 編碼) |
+| 新增欄位 | - | `unit_cbm`, `brand` |
+| 移除欄位 | `source_type`, `qty_verified`, `qty_source` | *(保留於內部使用)* |
+| 留空欄位 | - | H: Unit Rate, I: Amount |
+| 公式欄位 | - | K: Total CBM (=F*J) |
 
 ---
 
@@ -46,7 +59,7 @@
 - [x] T011 [P] Implement error handling utilities with ErrorCode enum and raise_error function (繁體中文訊息) in backend/app/utils/errors.py
 - [x] T012 [P] Implement file manager utility for temp file storage and cleanup in backend/app/utils/file_manager.py
 - [x] T013 [P] Implement input validators for PDF files in backend/app/utils/validators.py
-- [x] T014 Create BOQItem Pydantic model per data-model.md in backend/app/models/boq_item.py
+- [x] T014 **[UPDATED]** Update BOQItem Pydantic model per data-model.md (15 欄: 新增 unit_cbm, brand, 改用 photo_base64) in backend/app/models/boq_item.py
 - [x] T015 [P] Create SourceDocument Pydantic model per data-model.md in backend/app/models/source_document.py
 - [x] T016 [P] Create Quotation Pydantic model per data-model.md in backend/app/models/quotation.py
 - [x] T017 [P] Create ProcessingTask Pydantic model per data-model.md in backend/app/models/processing_task.py
@@ -72,9 +85,9 @@
 
 ## Phase 3: User Story 1 - 上傳 PDF 並生成報價單 (Priority: P1) 🎯 MVP
 
-**Goal**: 客戶上傳 BOQ PDF 檔案，系統解析並產出惠而蒙格式 Excel 報價單
+**Goal**: 客戶上傳 BOQ PDF 檔案，系統解析並產出惠而蒙格式 Excel 報價單（**15 欄，完全比照範本**）
 
-**Independent Test**: 上傳單一 BOQ PDF 檔案，驗證是否產出正確格式的 Excel 檔
+**Independent Test**: 上傳單一 BOQ PDF 檔案，驗證是否產出正確格式的 Excel 檔（15 欄，圖片以 Base64 嵌入）
 
 ### Tests for User Story 1 ⚠️
 
@@ -88,15 +101,15 @@
 - [x] T038 [P] [US1] Contract test for GET /api/export/{quotation_id}/download endpoint in backend/tests/contract/test_export_api.py
 - [x] T039 [P] [US1] Contract test for GET /api/task/{task_id} endpoint in backend/tests/contract/test_task_api.py
 - [x] T040 [P] [US1] Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py
-- [x] T041 [P] [US1] Unit test for image_extractor service (PyMuPDF) in backend/tests/unit/test_image_extractor.py
-- [x] T042 [P] [US1] Unit test for excel_generator service (openpyxl) in backend/tests/unit/test_excel_generator.py
+- [x] T041 [P] [US1] Unit test for image_extractor service (PyMuPDF, Base64 output) in backend/tests/unit/test_image_extractor.py
+- [x] T042 [P] [US1] Unit test for excel_generator service (openpyxl, 15 columns, Base64 image embed) in backend/tests/unit/test_excel_generator.py
 - [x] T043 [US1] Integration test for upload-parse-export flow in backend/tests/integration/test_upload_flow.py
 
 ### Implementation for User Story 1
 
-- [x] T044 [US1] Implement PDF parser service with Gemini integration (upload_pdf, parse_boq) in backend/app/services/pdf_parser.py
-- [x] T045 [US1] Implement image extractor service with PyMuPDF (extract_images_from_pdf) in backend/app/services/image_extractor.py
-- [x] T046 [US1] Implement Excel generator service with openpyxl (create_quotation_excel, embed photos) in backend/app/services/excel_generator.py
+- [x] T044 **[UPDATED]** [US1] Update PDF parser service to extract all 15 fields (including unit_cbm, brand) in backend/app/services/pdf_parser.py
+- [x] T045 **[UPDATED]** [US1] Update image extractor service to output Base64 instead of file path in backend/app/services/image_extractor.py
+- [x] T046 **[UPDATED]** [US1] Update Excel generator service to output 15 columns per template (embed Base64 photos, add formulas for Total CBM) in backend/app/services/excel_generator.py
 - [x] T047 [US1] Implement upload route with file validation, BackgroundTasks per openapi.yaml in backend/app/api/routes/upload.py
 - [x] T048 [US1] Implement parse route with start parsing and get result endpoints in backend/app/api/routes/parse.py
 - [x] T049 [US1] Implement export route with create quotation, generate excel, download endpoints in backend/app/api/routes/export.py
@@ -115,13 +128,13 @@
 - [x] T062 [US1] Implement Streamlit main app with navigation in frontend/app.py
 - [x] T063 [US1] Add temp file cleanup background task on app startup in backend/app/main.py
 
-**Checkpoint**: User Story 1 should be fully functional - single PDF upload, parse, preview, and Excel download
+**Checkpoint**: User Story 1 should be fully functional - single PDF upload, parse, preview, and Excel download (15 columns)
 
 ---
 
 ## Phase 4: User Story 2 - 多檔案上傳與合併處理 (Priority: P2)
 
-**Goal**: 上傳多個 PDF 檔案，合併處理後產出單一 Excel 報價單
+**Goal**: 上傳多個 PDF 檔案，合併處理後產出單一 Excel 報價單（15 欄格式）
 
 **Independent Test**: 上傳 2-3 份不同的 PDF 檔案，驗證系統能正確合併資料並產出單一整合報價單
 
@@ -168,7 +181,7 @@
 
 - [ ] T080 [US3] Implement floor plan analyzer service with Gemini vision (analyze_floor_plan) in backend/app/services/floor_plan_analyzer.py
 - [ ] T081 [US3] Implement floor plan analyze route POST /api/floor-plan/analyze in backend/app/api/routes/parse.py
-- [ ] T082 [US3] Verify BOQItem model includes qty_verified and qty_source fields per data-model.md (already defined in T014) in backend/app/models/boq_item.py
+- [ ] T082 [US3] Add optional qty_verified and qty_source fields to BOQItem for internal tracking (not exported to Excel) in backend/app/models/boq_item.py
 - [ ] T083 [US3] Update material table component to display qty source indicator (BOQ/平面圖) in frontend/components/material_table.py
 - [ ] T084 [US3] Update upload page to support floor plan selection and verification trigger in frontend/pages/upload.py
 - [ ] T085 [US3] Add verification status display showing which items were verified from floor plan in frontend/pages/preview.py
@@ -181,7 +194,7 @@
 
 **Goal**: 提供完整的材料驗證介面，包含照片、編號、尺寸、使用材料及詳細規格
 
-**Independent Test**: 上傳包含完整規格的 PDF，驗證系統能正確提取並顯示所有欄位資訊
+**Independent Test**: 上傳包含完整規格的 PDF，驗證系統能正確提取並顯示所有 15 欄位資訊
 
 ### Tests for User Story 4 ⚠️
 
@@ -195,7 +208,7 @@
 
 - [ ] T089 [US4] Implement quotation items listing endpoint GET /api/quotation/{quotation_id}/items in backend/app/api/routes/export.py
 - [ ] T090 [US4] Implement quotation items update endpoint PATCH /api/quotation/{quotation_id}/items in backend/app/api/routes/export.py
-- [ ] T091 [US4] Implement verification page with full material details display in frontend/pages/verification.py
+- [ ] T091 [US4] Implement verification page with full material details display (all 15 fields) in frontend/pages/verification.py
 - [ ] T092 [US4] Update source reference component to show PDF page and location in frontend/components/source_reference.py
 - [ ] T093 [US4] Add item editing capability in verification page in frontend/pages/verification.py
 - [ ] T094 [US4] Update main app navigation to include verification page in frontend/app.py
@@ -274,8 +287,8 @@ Task: "Contract test for POST /api/quotation endpoint in backend/tests/contract/
 
 # Launch all unit tests for User Story 1 together:
 Task: "Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py"
-Task: "Unit test for image_extractor service (PyMuPDF) in backend/tests/unit/test_image_extractor.py"
-Task: "Unit test for excel_generator service (openpyxl) in backend/tests/unit/test_excel_generator.py"
+Task: "Unit test for image_extractor service (PyMuPDF, Base64 output) in backend/tests/unit/test_image_extractor.py"
+Task: "Unit test for excel_generator service (openpyxl, 15 columns, Base64 image embed) in backend/tests/unit/test_excel_generator.py"
 ```
 
 ---
@@ -284,11 +297,11 @@ Task: "Unit test for excel_generator service (openpyxl) in backend/tests/unit/te
 
 ```bash
 # Launch all model creation tasks together:
-Task: "Create BOQItem Pydantic model per data-model.md in backend/app/models/boq_item.py"
-Task: "Create SourceDocument Pydantic model per data-model.md in backend/app/models/source_document.py"
-Task: "Create Quotation Pydantic model per data-model.md in backend/app/models/quotation.py"
-Task: "Create ProcessingTask Pydantic model per data-model.md in backend/app/models/processing_task.py"
-Task: "Create ExtractedImage Pydantic model per data-model.md in backend/app/models/extracted_image.py"
+Task: "Update BOQItem Pydantic model (15 欄) in backend/app/models/boq_item.py"
+Task: "Create SourceDocument Pydantic model in backend/app/models/source_document.py"
+Task: "Create Quotation Pydantic model in backend/app/models/quotation.py"
+Task: "Create ProcessingTask Pydantic model in backend/app/models/processing_task.py"
+Task: "Create ExtractedImage Pydantic model in backend/app/models/extracted_image.py"
 Task: "Create API response models in backend/app/models/responses.py"
 
 # Launch all utility tasks together:
@@ -305,7 +318,7 @@ Task: "Implement input validators in backend/app/utils/validators.py"
 
 1. Complete Phase 1: Setup
 2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
-3. Complete Phase 3: User Story 1
+3. Complete Phase 3: User Story 1 (**優先完成 T014, T044, T045, T046 以支援 15 欄格式**)
 4. **STOP and VALIDATE**: Test User Story 1 independently
 5. Deploy/demo if ready
 
@@ -332,6 +345,21 @@ With multiple developers:
 
 ---
 
+## Priority Tasks for 15-Column Format Update
+
+以下任務需要優先更新以支援新的 15 欄格式：
+
+| 優先級 | Task ID | 說明 |
+|--------|---------|------|
+| 🔴 高 | T014 | 更新 BOQItem 模型（新增 unit_cbm, brand, photo_base64） |
+| 🔴 高 | T044 | 更新 PDF 解析服務（提取所有 15 欄資料） |
+| 🔴 高 | T045 | 更新圖片提取服務（輸出 Base64 而非檔案路徑） |
+| 🔴 高 | T046 | 更新 Excel 產生器（15 欄、Base64 圖片嵌入、Total CBM 公式） |
+| 🟡 中 | T040-T042 | 更新相關單元測試 |
+| 🟡 中 | T056 | 更新材料表元件以顯示新欄位 |
+
+---
+
 ## Notes
 
 - [P] tasks = different files, no dependencies
@@ -341,4 +369,6 @@ With multiple developers:
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - All user-facing messages must be in 繁體中文
+- **Excel 輸出必須完全比照範本 15 欄，不包含額外追蹤欄位**
+- **圖片必須使用 Base64 編碼嵌入 Excel 儲存格**
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

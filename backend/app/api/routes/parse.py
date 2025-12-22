@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from pydantic import BaseModel
 
 from ...models import ProcessingTask, APIResponse
-from ...api.dependencies import StoreDep
+from ...api.dependencies import get_store_dependency
 from ...services.pdf_parser import get_pdf_parser
 from ...services.image_extractor import get_image_extractor
+from ...services.image_matcher import get_image_matcher
 from ...store import InMemoryStore
 from ...utils import log_error
 
@@ -25,16 +26,16 @@ class ParseRequest(BaseModel):
 
 
 @router.post(
-    "/parse/{document_id}",
+    "/documents/{document_id}/parsing",
     status_code=202,
     response_model=APIResponse,
     summary="啟動 PDF 解析",
 )
 async def start_parsing(
     document_id: str,
+    background_tasks: BackgroundTasks,
     request: Optional[ParseRequest] = None,
-    store: StoreDep = Depends(),
-    background_tasks: BackgroundTasks = None,
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     啟動 PDF 解析任務.
@@ -61,15 +62,14 @@ async def start_parsing(
         extract_images = request.extract_images if request else True
         target_categories = request.target_categories if request else None
 
-        if background_tasks:
-            background_tasks.add_task(
-                _parse_pdf_background,
-                document_id=document_id,
-                task_id=task.task_id,
-                store=store,
-                extract_images=extract_images,
-                target_categories=target_categories,
-            )
+        background_tasks.add_task(
+            _parse_pdf_background,
+            document_id=document_id,
+            task_id=task.task_id,
+            store=store,
+            extract_images=extract_images,
+            target_categories=target_categories,
+        )
 
         return {
             "success": True,
@@ -114,35 +114,66 @@ async def _parse_pdf_background(
             target_categories=target_categories,
         )
 
+        task.update_progress(70, "正在提取圖片...")
+
+        # Extract images and use Gemini Vision to match with BOQ items
+        extractor = get_image_extractor()
+        matched_count = 0
+        images_with_bytes = []
+
+        if extract_images:
+            # Extract all images (unified matcher handles filtering + matching)
+            images_with_bytes = extractor.extract_images_with_bytes(
+                document.file_path, document_id
+            )
+
+            if images_with_bytes and boq_items:
+                task.update_progress(75, "正在使用 AI 匹配圖片...")
+
+                # Use Gemini Vision to intelligently match images to items
+                matcher = get_image_matcher()
+                image_to_item_map = await matcher.match_images_to_items(
+                    images_with_bytes, boq_items
+                )
+
+                # Apply matches - convert to Base64 and assign to items
+                for img_idx, item_id in image_to_item_map.items():
+                    if img_idx < len(images_with_bytes):
+                        # Convert to Base64
+                        img_data = images_with_bytes[img_idx]
+                        base64_str = extractor._convert_to_base64(img_data["bytes"])
+
+                        # Find the matching BOQ item
+                        item = next((i for i in boq_items if i.id == item_id), None)
+                        if item:
+                            item.photo_base64 = base64_str
+                            matched_count += 1
+
+                logger.info(f"Matched {matched_count} images to items using Gemini AI")
+
         task.update_progress(80, "正在儲存結果...")
 
-        # Store items
+        # Store items (now with photo_base64)
         for item in boq_items:
             store.add_boq_item(item)
-
-        # Store images
-        extractor = get_image_extractor()
-        if extract_images and image_paths:
-            for image_path in image_paths:
-                # Images already stored by extractor
-                logger.info(f"Image stored: {image_path}")
 
         # Update document
         document.parse_status = "completed"
         document.parse_message = f"成功解析 {len(boq_items)} 個項目"
         document.extracted_items_count = len(boq_items)
-        document.extracted_images_count = len(image_paths)
+        document.extracted_images_count = len(images_with_bytes)
         store.update_document(document)
 
         # Complete task
         task.complete(result={
             "document_id": document_id,
             "items_count": len(boq_items),
-            "images_count": len(image_paths),
+            "images_count": len(images_with_bytes),
+            "matched_count": matched_count,
         })
         store.update_task(task)
 
-        logger.info(f"Successfully parsed document {document_id}: {len(boq_items)} items, {len(image_paths)} images")
+        logger.info(f"Successfully parsed document {document_id}: {len(boq_items)} items, {len(images_with_bytes)} images, {matched_count} matched")
 
     except Exception as e:
         logger.error(f"Error parsing document {document_id}: {e}")
@@ -162,13 +193,13 @@ async def _parse_pdf_background(
 
 
 @router.get(
-    "/parse/{document_id}/result",
+    "/documents/{document_id}/parse-result",
     response_model=APIResponse,
     summary="取得解析結果",
 )
 async def get_parse_result(
     document_id: str,
-    store: StoreDep = Depends(),
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     取得 PDF 解析完成後的 BOQ 項目列表.
@@ -216,7 +247,7 @@ async def get_parse_result(
                 "statistics": {
                     "total_items": len(items),
                     "items_with_qty": sum(1 for item in items if item.qty is not None),
-                    "items_with_photo": sum(1 for item in items if item.photo_path),
+                    "items_with_photo": sum(1 for item in items if item.photo_base64),
                     "total_images": len(images),
                 },
             },
@@ -228,7 +259,7 @@ async def get_parse_result(
 
 
 @router.post(
-    "/floor-plan/analyze",
+    "/floor-plan-analyses",
     status_code=202,
     response_model=APIResponse,
     summary="平面圖數量核對",
@@ -236,9 +267,9 @@ async def get_parse_result(
 async def analyze_floor_plan(
     floor_plan_document_id: str,
     boq_document_id: str,
+    background_tasks: BackgroundTasks,
     items_to_verify: Optional[List[str]] = None,
-    store: StoreDep = Depends(),
-    background_tasks: BackgroundTasks = None,
+    store: InMemoryStore = Depends(get_store_dependency),
 ) -> dict:
     """
     分析平面圖 PDF，核對並補充 BOQ 項目中缺失的數量.
@@ -262,15 +293,14 @@ async def analyze_floor_plan(
 
         store.add_task(task)
 
-        if background_tasks:
-            background_tasks.add_task(
-                _analyze_floor_plan_background,
-                floor_plan_document_id=floor_plan_document_id,
-                boq_document_id=boq_document_id,
-                task_id=task.task_id,
-                store=store,
-                items_to_verify=items_to_verify,
-            )
+        background_tasks.add_task(
+            _analyze_floor_plan_background,
+            floor_plan_document_id=floor_plan_document_id,
+            boq_document_id=boq_document_id,
+            task_id=task.task_id,
+            store=store,
+            items_to_verify=items_to_verify,
+        )
 
         return {
             "success": True,

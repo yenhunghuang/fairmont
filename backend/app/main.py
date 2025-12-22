@@ -106,7 +106,7 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     logger.error(f"APIError: {exc.error_code} - {exc.message}")
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.model_dump(),
+        content=error_response.model_dump(mode='json'),
     )
 
 
@@ -122,25 +122,8 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content=error_response.model_dump(),
+        content=error_response.model_dump(mode='json'),
     )
-
-
-# Health check endpoint
-@app.get("/health", tags=["System"])
-async def health_check() -> dict:
-    """
-    Health check endpoint.
-
-    Returns:
-        Health status and store statistics
-    """
-    return {
-        "status": "healthy",
-        "service": "家具報價單系統",
-        "version": "0.1.0",
-        "store": store.get_stats(),
-    }
 
 
 # Register API routers

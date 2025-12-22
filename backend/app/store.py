@@ -288,6 +288,19 @@ class InMemoryStore:
         return [task for task in self.processing_tasks.values()
                 if task.document_id == document_id]
 
+    def list_tasks(self) -> List[ProcessingTask]:
+        """
+        List all processing tasks (sorted by created_at descending).
+
+        Returns:
+            List of ProcessingTask objects sorted by creation time (newest first)
+        """
+        tasks = list(self.processing_tasks.values())
+        # Sort by created_at descending (newest first)
+        from datetime import datetime as dt_class
+        tasks.sort(key=lambda t: t.created_at or dt_class.min, reverse=True)
+        return tasks
+
     # ===== Extracted Image Management =====
 
     def add_image(self, image: ExtractedImage) -> None:

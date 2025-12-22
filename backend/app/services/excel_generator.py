@@ -1,8 +1,16 @@
-"""Excel generation service for Fairmont format quotations."""
+"""Excel generation service for Fairmont format quotations.
+
+完全比照惠而蒙格式 Excel 範本 15 欄:
+A: NO., B: Item no., C: Description, D: Photo, E: Dimension WxDxH (mm),
+F: Qty, G: UOM, H: Unit Rate (留空), I: Amount (留空), J: Unit CBM,
+K: Total CBM (公式), L: Note, M: Location, N: Materials Used / Specs, O: Brand
+"""
 
 import logging
+import base64
 from pathlib import Path
 from typing import List, Optional
+from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
@@ -17,20 +25,26 @@ logger = logging.getLogger(__name__)
 
 
 class ExcelGeneratorService:
-    """Service for generating Excel quotations in Fairmont format."""
+    """Service for generating Excel quotations in Fairmont format (15 columns)."""
 
-    # Fairmont format column headers (10 columns)
+    # Fairmont format column headers (15 columns per template)
+    # Format: (header_text, field_name, column_width)
     COLUMNS = [
-        ("NO.", "no", 5),  # Column width
-        ("Item No.", "item_no", 12),
-        ("Description", "description", 25),
-        ("Photo", "photo", 15),
-        ("Dimension", "dimension", 15),
-        ("Qty", "qty", 8),
-        ("UOM", "uom", 8),
-        ("Note", "note", 15),
-        ("Location", "location", 15),
-        ("Materials Used / Specs", "materials_specs", 25),
+        ("NO.", "no", 5),                          # A: 序號
+        ("Item no.", "item_no", 13),               # B: 項目編號
+        ("Description", "description", 20),        # C: 描述
+        ("Photo", "photo", 15),                    # D: 圖片 (Base64)
+        ("Dimension\nWxDxH (mm)", "dimension", 18),  # E: 尺寸
+        ("Qty", "qty", 8),                         # F: 數量
+        ("UOM", "uom", 6),                         # G: 單位
+        ("Unit Rate\n(USD)", "unit_rate", 12),    # H: 單價 (留空)
+        ("Amount\n(USD)", "amount", 12),          # I: 金額 (留空)
+        ("Unit\nCBM", "unit_cbm", 8),             # J: 單位材積
+        ("Total\nCBM", "total_cbm", 8),           # K: 總材積 (公式)
+        ("Note", "note", 20),                      # L: 備註
+        ("Location", "location", 15),              # M: 位置
+        ("Materials Used / Specs", "materials_specs", 20),  # N: 材料規格
+        ("Brand", "brand", 12),                    # O: 品牌
     ]
 
     def __init__(self):
@@ -120,7 +134,7 @@ class ExcelGeneratorService:
         include_photos: bool = True,
         photo_height_cm: float = 3.0,
     ) -> None:
-        """Add items to worksheet."""
+        """Add items to worksheet (15 columns per Fairmont template)."""
         thin_border = Border(
             left=Side(style="thin"),
             right=Side(style="thin"),
@@ -129,82 +143,158 @@ class ExcelGeneratorService:
         )
         center_alignment = Alignment(horizontal="center", vertical="top", wrap_text=True)
         left_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        right_alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
 
         # Calculate photo size in pixels (assuming 96 DPI)
         # 1 cm = ~37.8 pixels at 96 DPI
         photo_height_px = int(photo_height_cm * 37.8)
 
         for row_num, item in enumerate(items, 2):  # Start from row 2 (after header)
-            # NO.
+            # A: NO.
             cell = ws.cell(row=row_num, column=1)
             cell.value = item.no
             cell.alignment = center_alignment
             cell.border = thin_border
 
-            # Item No.
+            # B: Item no.
             cell = ws.cell(row=row_num, column=2)
             cell.value = item.item_no
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Description
+            # C: Description
             cell = ws.cell(row=row_num, column=3)
             cell.value = item.description
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Photo
-            if include_photos and item.photo_path:
-                self._embed_photo(ws, row_num, 4, item.photo_path, photo_height_px)
+            # D: Photo (Base64)
+            if include_photos and item.photo_base64:
+                self._embed_base64_photo(ws, row_num, 4, item.photo_base64, photo_height_px)
             else:
                 cell = ws.cell(row=row_num, column=4)
-                cell.value = "[無圖片]" if not item.photo_path else ""
+                cell.value = ""
                 cell.alignment = center_alignment
                 cell.border = thin_border
 
-            # Dimension
+            # E: Dimension WxDxH (mm)
             cell = ws.cell(row=row_num, column=5)
             cell.value = item.dimension or ""
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Qty
+            # F: Qty
             cell = ws.cell(row=row_num, column=6)
             if item.qty is not None:
                 cell.value = item.qty
-                cell.number_format = "0.00"
+                cell.number_format = "0"
             cell.alignment = center_alignment
             cell.border = thin_border
 
-            # UOM
+            # G: UOM
             cell = ws.cell(row=row_num, column=7)
             cell.value = item.uom or ""
             cell.alignment = center_alignment
             cell.border = thin_border
 
-            # Note
+            # H: Unit Rate (USD) - 留空，使用者填寫
             cell = ws.cell(row=row_num, column=8)
+            cell.value = ""
+            cell.alignment = right_alignment
+            cell.border = thin_border
+
+            # I: Amount (USD) - 留空，使用者填寫
+            cell = ws.cell(row=row_num, column=9)
+            cell.value = ""
+            cell.alignment = right_alignment
+            cell.border = thin_border
+
+            # J: Unit CBM
+            cell = ws.cell(row=row_num, column=10)
+            if item.unit_cbm is not None:
+                cell.value = item.unit_cbm
+                cell.number_format = "0.00"
+            cell.alignment = center_alignment
+            cell.border = thin_border
+
+            # K: Total CBM (公式: =F*J)
+            cell = ws.cell(row=row_num, column=11)
+            if item.unit_cbm is not None and item.qty is not None:
+                cell.value = f"=F{row_num}*J{row_num}"
+                cell.number_format = "0.00"
+            cell.alignment = center_alignment
+            cell.border = thin_border
+
+            # L: Note
+            cell = ws.cell(row=row_num, column=12)
             cell.value = item.note or ""
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Location
-            cell = ws.cell(row=row_num, column=9)
+            # M: Location
+            cell = ws.cell(row=row_num, column=13)
             cell.value = item.location or ""
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Materials Used / Specs
-            cell = ws.cell(row=row_num, column=10)
+            # N: Materials Used / Specs
+            cell = ws.cell(row=row_num, column=14)
             cell.value = item.materials_specs or ""
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Set row height based on content
-            row_height = 20
-            if include_photos and item.photo_path:
-                row_height = max(row_height, photo_height_px + 5)
-            ws.row_dimensions[row_num].height = row_height
+            # O: Brand
+            cell = ws.cell(row=row_num, column=15)
+            cell.value = item.brand or ""
+            cell.alignment = left_alignment
+            cell.border = thin_border
+
+            # Set fixed row height for uniform layout (85px to fit 80px images + margin)
+            FIXED_ROW_HEIGHT = 85
+            ws.row_dimensions[row_num].height = FIXED_ROW_HEIGHT
+
+    def _embed_base64_photo(
+        self,
+        ws,
+        row_num: int,
+        col_num: int,
+        photo_base64: str,
+        photo_height_px: int,
+    ) -> None:
+        """Embed Base64 encoded photo in worksheet with fixed dimensions."""
+        # Fixed dimensions for uniform Excel layout
+        FIXED_WIDTH = 100
+        FIXED_HEIGHT = 80
+
+        try:
+            # Remove data URI prefix if present
+            if photo_base64.startswith("data:"):
+                photo_base64 = photo_base64.split(",", 1)[1]
+
+            # Decode Base64 to bytes
+            image_bytes = base64.b64decode(photo_base64)
+            image_stream = BytesIO(image_bytes)
+
+            # Create Excel image object from bytes
+            img = XLImage(image_stream)
+
+            # Set fixed width and height (may stretch/compress image)
+            img.width = FIXED_WIDTH
+            img.height = FIXED_HEIGHT
+
+            # Get column letter and position
+            col_letter = get_column_letter(col_num)
+            cell_ref = f"{col_letter}{row_num}"
+
+            # Add image to worksheet
+            ws.add_image(img, cell_ref)
+
+            logger.debug(f"Embedded Base64 photo in cell {cell_ref} ({FIXED_WIDTH}x{FIXED_HEIGHT}px)")
+
+        except Exception as e:
+            logger.warning(f"Failed to embed Base64 photo: {e}")
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.value = "[圖片嵌入失敗]"
 
     def _embed_photo(
         self,
@@ -214,7 +304,7 @@ class ExcelGeneratorService:
         photo_path: str,
         photo_height_px: int,
     ) -> None:
-        """Embed photo in worksheet."""
+        """Embed photo from file path in worksheet (legacy support)."""
         try:
             path = Path(photo_path)
             if not path.exists():
@@ -289,7 +379,7 @@ class ExcelGeneratorService:
 
     def validate_excel_file(self, file_path: str) -> bool:
         """
-        Validate generated Excel file.
+        Validate generated Excel file (15 columns per Fairmont format).
 
         Args:
             file_path: Path to Excel file
@@ -306,18 +396,23 @@ class ExcelGeneratorService:
             wb = load_workbook(file_path)
             ws = wb.active
 
-            # Check headers
+            # Check headers (15 columns)
             expected_headers = [col[0] for col in self.COLUMNS]
             actual_headers = [cell.value for cell in ws[1]]
 
-            if actual_headers[:10] != expected_headers:
-                raise ValueError("Headers do not match Fairmont format")
+            # Compare first 15 columns
+            if actual_headers[:15] != expected_headers:
+                logger.warning(
+                    f"Header mismatch. Expected: {expected_headers}, "
+                    f"Actual: {actual_headers[:15]}"
+                )
+                raise ValueError("Headers do not match Fairmont format (15 columns)")
 
             # Check at least one data row
             if ws.max_row < 2:
                 raise ValueError("No data rows in worksheet")
 
-            logger.info(f"Excel file validated: {file_path}")
+            logger.info(f"Excel file validated: {file_path} (15 columns)")
             return True
 
         except Exception as e:

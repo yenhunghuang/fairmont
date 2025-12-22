@@ -15,11 +15,11 @@ class TestUploadEndpoint:
         """Test successful single PDF upload."""
         with open(sample_pdf_file, "rb") as f:
             response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data.get("success") is True
         assert "data" in data
@@ -37,14 +37,14 @@ class TestUploadEndpoint:
 
         with open(sample_pdf_file, "rb") as f1, open(second_file, "rb") as f2:
             response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files=[
                     ("files", ("test.pdf", f1, "application/pdf")),
                     ("files", ("test2.pdf", f2, "application/pdf")),
                 ],
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data.get("success") is True
         assert len(data["data"]["documents"]) == 2
@@ -56,7 +56,7 @@ class TestUploadEndpoint:
 
         with open(empty_file, "rb") as f:
             response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": ("empty.pdf", f, "application/pdf")},
             )
 
@@ -72,7 +72,7 @@ class TestUploadEndpoint:
 
         with open(txt_file, "rb") as f:
             response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": ("test.txt", f, "text/plain")},
             )
 
@@ -94,7 +94,7 @@ class TestUploadEndpoint:
                 ("files", (f"test{i}.pdf", files_to_upload[i], "application/pdf"))
                 for i in range(6)
             ]
-            response = client.post("/api/upload", files=file_tuples)
+            response = client.post("/api/documents", files=file_tuples)
 
             assert response.status_code == 400
             data = response.json()
@@ -107,11 +107,11 @@ class TestUploadEndpoint:
         """Test upload response has correct structure."""
         with open(sample_pdf_file, "rb") as f:
             response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
 
         # Check response structure
@@ -147,7 +147,7 @@ class TestDocumentListingEndpoint:
         # Upload a document
         with open(sample_pdf_file, "rb") as f:
             client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
@@ -176,7 +176,7 @@ class TestDocumentDetailEndpoint:
         # Upload a document
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 

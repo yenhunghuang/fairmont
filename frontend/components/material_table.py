@@ -54,7 +54,7 @@ def display_material_table(items: List[Dict[str, Any]]) -> pd.DataFrame:
         items_with_qty = sum(1 for item in items if item.get("qty"))
         st.metric("📋 有數量的項目", items_with_qty)
     with col3:
-        items_with_photo = sum(1 for item in items if item.get("photo_path"))
+        items_with_photo = sum(1 for item in items if item.get("photo_base64"))
         st.metric("🖼️ 有圖片的項目", items_with_photo)
     with col4:
         items_verified = sum(1 for item in items if item.get("qty_verified"))
@@ -96,11 +96,15 @@ def display_item_details(item: Dict[str, Any]) -> None:
         else:
             st.warning("⚠️ 數量未驗證")
 
-    # Display photo if available
-    if item.get('photo_path'):
+    # Display photo if available (Base64 encoded)
+    if item.get('photo_base64'):
         st.subheader("🖼️ 圖片")
         try:
-            st.image(item['photo_path'], use_column_width=True)
+            # Handle data URI prefix
+            base64_str = item['photo_base64']
+            if not base64_str.startswith("data:"):
+                base64_str = f"data:image/png;base64,{base64_str}"
+            st.image(base64_str, use_column_width=True)
         except Exception as e:
             st.warning(f"無法載入圖片：{e}")
 

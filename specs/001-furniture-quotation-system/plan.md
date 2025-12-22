@@ -1,73 +1,35 @@
-# Implementation Plan: 家具報價單系統 (Furniture Quotation System)
+# Implementation Plan: 家具報價單系統
 
 **Branch**: `001-furniture-quotation-system` | **Date**: 2025-12-19 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `/specs/001-furniture-quotation-system/spec.md`
 
-**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
-
 ## Summary
 
-建立一個家具報價單自動化系統，讓客戶上傳 BOQ（Bill of Quantities）PDF 文件，系統使用 Google Gemini 3 Flash Preview 模型解析文件內容，自動提取活動家具及物料資料（包含圖片），並產出惠而蒙格式的 Excel 報價單。系統採用 Python FastAPI 後端 + Streamlit 前端架構，支援多檔案上傳與平面圖數量核對功能。
+家具報價單自動化系統 - 使用者上傳 BOQ（Bill of Quantities）PDF 檔案，使用 Google Gemini AI 解析內容，自動產出**完全比照惠而蒙格式**的 Excel 報價單。輸出欄位嚴格遵循範本 `docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx`，共 15 欄，不包含額外追蹤欄位。
 
 ## Technical Context
 
 **Language/Version**: Python 3.11+
-**Primary Dependencies**: FastAPI (後端 API)、Streamlit (前端 UI)、google-generativeai (Gemini API)、PyMuPDF (PDF 處理)、openpyxl (Excel 產出)、Pillow (圖片處理)
-**Storage**: 本地檔案系統（暫存上傳檔案與產出檔案），無需資料庫
-**Testing**: pytest + pytest-asyncio (單元/整合測試)、Playwright (E2E 測試)
-**Target Platform**: Linux/Windows Server、Docker 容器化部署
-**Project Type**: Web Application (前後端分離)
-**Performance Goals**: 單檔 PDF (<50MB) 解析完成時間 <5 分鐘、API 回應 <200ms (標準請求)、Gemini API 呼叫 <15 秒
-**Constraints**: 無 Redis 快取、單機部署、支援 10+ 併發使用者、暫存檔案定期清理
-**Scale/Scope**: 單機服務、支援同時處理 5 個 PDF 檔案、每檔最大 50MB
+**Primary Dependencies**: FastAPI 0.100+, Streamlit 1.28+, Google Generative AI (Gemini 1.5 Flash), openpyxl, python-multipart, httpx
+**Storage**: 檔案系統暫存 + 記憶體儲存（InMemoryStore with 1-hour TTL，無資料庫）
+**Testing**: pytest with pytest-asyncio, pytest-cov (coverage >= 80%)
+**Target Platform**: Windows/Linux server (本地開發)
+**Project Type**: Web application (前後端分離：FastAPI backend + Streamlit frontend)
+**Performance Goals**: API 回應時間 < 200ms (標準請求), PDF 解析 < 5 分鐘/檔案
+**Constraints**: 單檔最大 50MB, 最多 5 個檔案同時上傳, 匿名使用無需登入
+**Scale/Scope**: 單機部署, 10+ 併發使用者
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-### I. 代碼品質 (Code Quality)
-| 要求 | 符合性 | 說明 |
-|------|--------|------|
-| 自文檔化代碼，命名清晰 | ✅ PASS | 使用 Python type hints、清晰函數/變數命名 |
-| 合併前強制代碼審查 | ✅ PASS | Git workflow 執行 PR review |
-| 語法檢查/格式化零警告 | ✅ PASS | 使用 ruff + black 確保代碼品質 |
-| 公共 API 內嵌文件 | ✅ PASS | FastAPI OpenAPI 自動產生、docstrings |
-| 第三方依賴安全審查 | ✅ PASS | 使用知名套件、定期更新 |
-
-### II. 測試標準 (Testing Standards - NON-NEGOTIABLE)
-| 要求 | 符合性 | 說明 |
-|------|--------|------|
-| 測試優先開發 | ✅ PASS | 採用 TDD 流程 |
-| 最低 80% 代碼覆蓋率 | ✅ PASS | pytest-cov 監控覆蓋率 |
-| 單元/整合/E2E 測試 | ✅ PASS | pytest + Playwright |
-| 合併前測試通過 | ✅ PASS | CI/CD pipeline 驗證 |
-
-### III. UX 一致性 (UX Consistency)
-| 要求 | 符合性 | 說明 |
-|------|--------|------|
-| WCAG 2.1 Level AA | ✅ PASS | Streamlit 預設支援基本可訪問性 |
-| 響應式設計 | ✅ PASS | Streamlit 自動響應式佈局 |
-| 繁體中文錯誤訊息 | ✅ PASS | 所有使用者訊息使用繁體中文 |
-| 載入狀態 (>100ms) | ✅ PASS | Streamlit spinner/progress bar |
-| 國際化支援 | ⚠️ N/A | 初版僅支援繁體中文 |
-
-### IV. 效能要求 (Performance Standards)
-| 要求 | 符合性 | 說明 |
-|------|--------|------|
-| API <200ms (p95) | ✅ PASS | 標準請求符合、PDF 解析例外（長時間任務） |
-| Q&A <15 秒 | ✅ PASS | Gemini API 單次呼叫 <15 秒 |
-| 頁面載入 <2 秒 | ✅ PASS | Streamlit 輕量化前端 |
-| 10+ 併發使用者 | ✅ PASS | FastAPI async 支援 |
-| 資料庫查詢索引 | ⚠️ N/A | 無資料庫，使用檔案系統 |
-| 快取機制 | ⚠️ N/A | 無 Redis（使用者指定），使用記憶體快取替代 |
-
-### V. 語言要求 (Language Requirements)
-| 要求 | 符合性 | 說明 |
-|------|--------|------|
-| 繁體中文文件/UI | ✅ PASS | 規格、UI、錯誤訊息皆使用繁體中文 |
-| 英文代碼註解 | ✅ PASS | 代碼註解允許使用英文 |
-
-**Constitution Gate**: ✅ **PASS** - 所有必要項目符合或標示為不適用
+| 原則 | 狀態 | 說明 |
+|------|------|------|
+| I. 代碼品質 | ✅ 通過 | Type hints 必須, ruff+black 檢查, 公開 API 必須有 docstrings |
+| II. 測試標準 | ✅ 通過 | 測試優先開發, 覆蓋率 >= 80%, 單元/整合/E2E 測試 |
+| III. UX 一致性 | ✅ 通過 | 繁體中文錯誤訊息, 操作狀態顯示 |
+| IV. 效能要求 | ✅ 通過 | API < 200ms, 併發支援 |
+| V. 語言要求 | ✅ 通過 | 繁體中文用於規格/UI/錯誤訊息 |
 
 ## Project Structure
 
@@ -75,13 +37,14 @@
 
 ```text
 specs/001-furniture-quotation-system/
-├── plan.md              # 實作計畫（本文件）
-├── research.md          # Phase 0 研究輸出
-├── data-model.md        # Phase 1 資料模型設計
-├── quickstart.md        # Phase 1 快速開始指南
-├── contracts/           # Phase 1 API 規格
-│   └── openapi.yaml     # OpenAPI 3.0 規格
-└── tasks.md             # Phase 2 任務清單（由 /speckit.tasks 產生）
+├── plan.md              # This file
+├── spec.md              # Feature specification
+├── research.md          # Phase 0 output
+├── data-model.md        # Phase 1 output
+├── quickstart.md        # Phase 1 output
+├── contracts/           # API contracts
+│   └── openapi.yaml
+└── tasks.md             # Phase 2 output (via /speckit.tasks)
 ```
 
 ### Source Code (repository root)
@@ -89,121 +52,185 @@ specs/001-furniture-quotation-system/
 ```text
 backend/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI 應用程式入口
-│   ├── config.py            # 設定檔（Gemini API Key 等）
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── boq_item.py      # BOQ 項目資料模型
-│   │   ├── quotation.py     # 報價單資料模型
-│   │   └── source_document.py  # 來源文件資料模型
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── pdf_parser.py    # PDF 解析服務（Gemini 整合）
-│   │   ├── image_extractor.py  # 圖片提取服務
-│   │   ├── excel_generator.py  # Excel 產出服務（惠而蒙格式）
-│   │   └── floor_plan_analyzer.py  # 平面圖分析服務
+│   ├── main.py           # FastAPI application
+│   ├── config.py         # Environment settings
+│   ├── store.py          # InMemoryStore
+│   ├── models/           # Pydantic models
+│   │   ├── boq_item.py
+│   │   ├── source_document.py
+│   │   ├── quotation.py
+│   │   ├── processing_task.py
+│   │   └── extracted_image.py
+│   ├── services/         # Business logic
+│   │   ├── pdf_parser.py
+│   │   ├── image_extractor.py
+│   │   └── excel_generator.py
 │   ├── api/
-│   │   ├── __init__.py
-│   │   ├── routes/
-│   │   │   ├── __init__.py
-│   │   │   ├── upload.py    # 檔案上傳 API
-│   │   │   ├── parse.py     # PDF 解析 API
-│   │   │   └── export.py    # Excel 匯出 API
-│   │   └── dependencies.py  # API 依賴注入
+│   │   ├── routes/       # FastAPI routes
+│   │   │   ├── upload.py
+│   │   │   ├── parse.py
+│   │   │   ├── export.py
+│   │   │   ├── task.py
+│   │   │   └── health.py
+│   │   └── dependencies.py
 │   └── utils/
-│       ├── __init__.py
-│       ├── file_manager.py  # 暫存檔案管理
-│       └── validators.py    # 輸入驗證
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py          # pytest fixtures
-│   ├── unit/
-│   │   ├── test_pdf_parser.py
-│   │   ├── test_excel_generator.py
-│   │   └── test_image_extractor.py
-│   ├── integration/
-│   │   ├── test_upload_flow.py
-│   │   └── test_parse_export_flow.py
-│   └── contract/
-│       └── test_api_contracts.py
-├── requirements.txt
-├── requirements-dev.txt
-└── pyproject.toml
+│       ├── errors.py
+│       ├── file_manager.py
+│       └── validators.py
+└── tests/
+    ├── contract/
+    ├── integration/
+    └── unit/
 
 frontend/
-├── app.py                   # Streamlit 主程式
-├── pages/
-│   ├── __init__.py
-│   ├── upload.py            # 上傳頁面
-│   ├── preview.py           # 預覽頁面
-│   └── verification.py      # 驗證頁面
-├── components/
-│   ├── __init__.py
-│   ├── file_uploader.py     # 檔案上傳元件
-│   ├── progress_display.py  # 進度顯示元件
-│   ├── material_table.py    # 材料表格元件
-│   └── source_reference.py  # 來源參照元件
+├── app.py                # Streamlit main
 ├── services/
-│   ├── __init__.py
-│   └── api_client.py        # 後端 API 客戶端
-├── tests/
-│   ├── __init__.py
-│   └── e2e/
-│       └── test_full_flow.py  # E2E 測試（Playwright）
-└── requirements.txt
-
-# 根目錄設定檔
-├── docker-compose.yml       # 容器化部署
-├── Dockerfile.backend
-├── Dockerfile.frontend
-├── .env.example             # 環境變數範本
-└── README.md
+│   └── api_client.py     # Backend API client
+├── components/           # Reusable UI components
+└── pages/
+    ├── upload.py
+    └── preview.py
 ```
 
-**Structure Decision**: 採用 Web Application 結構（Option 2），前後端分離。後端使用 FastAPI 提供 RESTful API，前端使用 Streamlit 作為使用者介面。選擇此結構因為：
-1. 符合 FR-013 前後端分離架構要求
-2. FastAPI 提供高效能 async 處理，適合 PDF 解析長時間任務
-3. Streamlit 快速建構可視化介面，符合 POC 需求
+**Structure Decision**: Web application 架構，前後端分離。後端使用 FastAPI 處理 API，前端使用 Streamlit 提供可視化介面。
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| 無 Redis 快取 | 使用者明確要求不使用 Redis | 使用 Python 記憶體快取 (cachetools) 作為替代方案，足以應付 10+ 併發使用者 |
-
-**備註**：無其他憲法違規事項需要說明。
+*無違規需要說明。*
 
 ---
 
-## Post-Design Constitution Re-Check (Phase 1 Complete)
+## Excel 輸出格式規範
 
-*驗證日期*: 2025-12-19
+> **重要**：輸出欄位完全比照範本 `docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx`，不包含額外追蹤欄位。
 
-設計階段完成後重新評估憲法符合性：
+### 惠而蒙格式 Excel 欄位定義（共 15 欄）
 
-| 設計產出 | 憲法要求 | 評估結果 |
-|----------|----------|----------|
-| data-model.md | Pydantic 模型含完整 type hints 和驗證 | ✅ 符合代碼品質 |
-| contracts/openapi.yaml | OpenAPI 3.0 完整規格、繁體中文描述 | ✅ 符合文件要求 |
-| research.md | 技術決策有明確理由、替代方案評估 | ✅ 符合決策透明度 |
-| quickstart.md | 繁體中文指南、含測試執行說明 | ✅ 符合語言和測試要求 |
-| Project Structure | 前後端分離、tests/ 目錄規劃 | ✅ 符合架構要求 |
+| 欄位 | Excel Column | 說明 | 資料來源 |
+|------|--------------|------|----------|
+| NO. | A | 序號 | 系統自動產生 |
+| Item no. | B | 項目編號 | PDF 解析 |
+| Description | C | 品名描述 | PDF 解析 |
+| Photo | D | 圖片 | PDF 提取後以 **Base64 編碼**嵌入儲存格 |
+| Dimension WxDxH (mm) | E | 尺寸規格 | PDF 解析 |
+| Qty | F | 數量 | PDF 解析 / 平面圖核對 |
+| UOM | G | 單位 | PDF 解析 |
+| Unit Rate (USD) | H | 單價 | **留空** - 使用者手動填寫 |
+| Amount (USD) | I | 金額 | **留空** - 使用者手動填寫 |
+| Unit CBM | J | 單位材積 | PDF 解析（若有） |
+| Total CBM | K | 總材積 | 可由公式計算 (Unit CBM × Qty) |
+| Note | L | 備註 | PDF 解析 |
+| Location | M | 位置 | PDF 解析 |
+| Materials Used / Specs | N | 材料/規格 | PDF 解析 |
+| Brand | O | 品牌 | PDF 解析（若有） |
 
-**Post-Design Gate**: ✅ **PASS** - 所有設計產出符合憲法要求
+### 圖片處理規範
+
+- **格式**：使用 Base64 編碼嵌入 Excel
+- **儲存方式**：資料模型中以 `photo_base64: str` 欄位儲存
+- **Excel 嵌入**：使用 openpyxl 將 Base64 解碼後嵌入儲存格
+- **尺寸**：自動調整儲存格高度以適應圖片
+
+### 價格欄位處理規則
+
+- **Unit Rate (H 欄)**: 留空，使用者自行填入
+- **Amount (I 欄)**: 留空，使用者自行填入（或可設為公式 `=F*H`）
+- **Unit CBM (J 欄)**: 從 PDF 解析（若有資料）
+- **Total CBM (K 欄)**: 若 Unit CBM 有值，可設為公式 `=F*J`；否則留空
+
+### 資料模型欄位對照
+
+| BOQItem 欄位 | Excel 欄位 | 說明 |
+|--------------|------------|------|
+| `no` | A: NO. | 序號 |
+| `item_no` | B: Item no. | 項目編號 |
+| `description` | C: Description | 描述 |
+| `photo_base64` | D: Photo | Base64 編碼圖片，嵌入儲存格 |
+| `dimension` | E: Dimension | 尺寸 |
+| `qty` | F: Qty | 數量 |
+| `uom` | G: UOM | 單位 |
+| *(留空)* | H: Unit Rate | 使用者填寫 |
+| *(留空)* | I: Amount | 使用者填寫 |
+| `unit_cbm` | J: Unit CBM | 單位材積 |
+| *(公式或留空)* | K: Total CBM | 計算欄位 |
+| `note` | L: Note | 備註 |
+| `location` | M: Location | 位置 |
+| `materials_specs` | N: Materials Used / Specs | 材料規格 |
+| `brand` | O: Brand | 品牌 |
 
 ---
 
-## Phase 1 設計產出摘要
+## 資料模型變更
 
-| 產出物 | 檔案路徑 | 狀態 |
-|--------|----------|------|
-| 技術研究 | `specs/001-furniture-quotation-system/research.md` | ✅ 完成 |
-| 資料模型 | `specs/001-furniture-quotation-system/data-model.md` | ✅ 完成 |
-| API 規格 | `specs/001-furniture-quotation-system/contracts/openapi.yaml` | ✅ 完成 |
-| 快速開始 | `specs/001-furniture-quotation-system/quickstart.md` | ✅ 完成 |
-| Agent Context | `CLAUDE.md` | ✅ 完成 |
+### BOQItem 更新欄位
 
-**下一步**：執行 `/speckit.tasks` 產生開發任務清單
+基於 Excel 範本分析，需更新以下欄位：
+
+```python
+class BOQItem(BaseModel):
+    # 核心欄位（完全比照 Excel 範本 15 欄）
+    no: int                                    # A: NO.
+    item_no: str                               # B: Item no.
+    description: str                           # C: Description
+    photo_base64: Optional[str] = None         # D: Photo (Base64 編碼)
+    dimension: Optional[str] = None            # E: Dimension WxDxH (mm)
+    qty: Optional[float] = None                # F: Qty
+    uom: Optional[str] = None                  # G: UOM
+    # H: Unit Rate - 不儲存，留空
+    # I: Amount - 不儲存，留空
+    unit_cbm: Optional[float] = None           # J: Unit CBM
+    # K: Total CBM - 計算欄位
+    note: Optional[str] = None                 # L: Note
+    location: Optional[str] = None             # M: Location
+    materials_specs: Optional[str] = None      # N: Materials Used / Specs
+    brand: Optional[str] = None                # O: Brand
+
+    # 內部追蹤欄位（不輸出到 Excel）
+    id: str                                    # UUID
+    source_document_id: str                    # 來源文件 ID
+    source_page: Optional[int] = None          # 來源頁碼
+```
+
+### 移除欄位
+
+因使用者要求「不用額外追蹤欄位」，以下欄位在 Excel 輸出時不包含：
+
+- `photo_path` → 改用 `photo_base64`
+- `source_type`, `source_location` - 不需要
+- `qty_verified`, `qty_source` - 不需要
+
+---
+
+## Implementation Phases
+
+### Phase 1: 核心上傳解析流程 (P1 User Story 1)
+
+1. PDF 上傳 API
+2. Gemini AI BOQ 解析（提取所有 15 欄資料）
+3. 圖片提取並轉換為 Base64
+4. 基本前端上傳介面
+
+### Phase 2: Excel 輸出 (P1 User Story 1)
+
+1. 惠而蒙格式 Excel 產生器（15 欄）
+2. Base64 圖片嵌入儲存格
+3. 下載功能
+
+### Phase 3: 多檔案支援 (P2 User Story 2)
+
+1. 多檔案上傳
+2. 資料合併
+
+### Phase 4: 平面圖核對 (P2 User Story 3)
+
+1. 平面圖解析
+2. 數量核對與補充
+
+---
+
+## 待研究項目
+
+1. ✅ Excel 範本欄位結構 - 已分析完成（15 欄）
+2. ✅ 圖片處理方式 - 使用 Base64 編碼
+3. openpyxl Base64 圖片嵌入實作細節
+4. Gemini AI prompt 優化（提取 Brand, Unit CBM 欄位）

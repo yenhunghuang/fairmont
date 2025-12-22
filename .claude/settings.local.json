@@ -6,7 +6,16 @@
       "Bash(python:*)",
       "Bash(git rev-parse:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(dir:*)",
+      "Bash(timeout 5 python:*)",
+      "Bash(curl:*)",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend'' -Directory | Select-Object Name\")",
+      "Bash(powershell -Command:*)",
+      "Bash(grep:*)",
+      "Bash(del \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\\\\app\\\\services\\\\image_filter.py\")",
+      "Bash(pytest:*)",
+      "Bash(pip uninstall:*)"
     ]
   }
 }

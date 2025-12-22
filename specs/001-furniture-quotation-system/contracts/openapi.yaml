@@ -50,7 +50,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
 
-  /api/upload:
+  /api/documents:
     post:
       tags:
         - Upload
@@ -85,7 +85,7 @@ paths:
               required:
                 - files
       responses:
-        '200':
+        '201':
           description: 上傳成功
           content:
             application/json:
@@ -104,7 +104,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /api/documents:
+
     get:
       tags:
         - Upload
@@ -182,7 +182,7 @@ paths:
         '404':
           description: 找不到文件
 
-  /api/parse/{document_id}:
+  /api/documents/{document_id}/parsing:
     post:
       tags:
         - Parse
@@ -220,7 +220,7 @@ paths:
         '404':
           description: 找不到文件
 
-  /api/parse/{document_id}/result:
+  /api/documents/{document_id}/parse-result:
     get:
       tags:
         - Parse
@@ -252,7 +252,7 @@ paths:
         '404':
           description: 找不到文件或解析尚未完成
 
-  /api/floor-plan/analyze:
+  /api/floor-plan-analyses:
     post:
       tags:
         - Parse
@@ -289,7 +289,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TaskResponse'
 
-  /api/quotation:
+  /api/quotations:
     post:
       tags:
         - Export
@@ -321,7 +321,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Quotation'
 
-  /api/quotation/{quotation_id}:
+  /api/quotations/{quotation_id}:
     get:
       tags:
         - Export
@@ -339,7 +339,7 @@ paths:
         '404':
           description: 找不到報價單
 
-  /api/quotation/{quotation_id}/items:
+  /api/quotations/{quotation_id}/items:
     get:
       tags:
         - Export
@@ -394,47 +394,30 @@ paths:
         '200':
           description: 更新成功
 
-  /api/export/{quotation_id}/excel:
-    post:
-      tags:
-        - Export
-      summary: 產出 Excel 報價單
-      description: |
-        將報價單匯出為惠而蒙格式 Excel 檔案。
-        為非同步操作，完成後可下載檔案。
-      operationId: exportExcel
-      parameters:
-        - $ref: '#/components/parameters/QuotationId'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                include_photos:
-                  type: boolean
-                  default: true
-                  description: 是否嵌入圖片
-                photo_height_cm:
-                  type: number
-                  default: 3.0
-                  description: 圖片高度（公分）
-      responses:
-        '202':
-          description: 匯出任務已建立
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TaskResponse'
-
-  /api/export/{quotation_id}/download:
+  /api/quotations/{quotation_id}/excel:
     get:
       tags:
         - Export
-      summary: 下載 Excel 檔案
-      operationId: downloadExcel
+      summary: 產出並下載 Excel 報價單
+      description: |
+        將報價單匯出為惠而蒙格式 Excel 檔案。
+        若檔案尚未產出，將非同步產生並返回 202；
+        若檔案已產出，直接返回 200 與檔案內容。
+      operationId: exportExcel
       parameters:
         - $ref: '#/components/parameters/QuotationId'
+        - name: include_photos
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: 是否嵌入圖片
+        - name: photo_height_cm
+          in: query
+          schema:
+            type: number
+            default: 3.0
+          description: 圖片高度（公分）
       responses:
         '200':
           description: Excel 檔案
@@ -443,10 +426,16 @@ paths:
               schema:
                 type: string
                 format: binary
+        '202':
+          description: 匯出任務進行中，稍後重試
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
         '404':
-          description: 找不到報價單或檔案尚未產出
+          description: 找不到報價單
 
-  /api/task/{task_id}:
+  /api/tasks/{task_id}:
     get:
       tags:
         - Task
@@ -625,6 +614,11 @@ components:
 
     BOQItem:
       type: object
+      description: |
+        BOQ 項目資料模型（完全比照惠而蒙格式 15 欄）
+        Excel 欄位: A:NO., B:Item no., C:Description, D:Photo, E:Dimension,
+        F:Qty, G:UOM, H:Unit Rate(留空), I:Amount(留空), J:Unit CBM,
+        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand
       required:
         - id
         - item_no
@@ -633,49 +627,59 @@ components:
         id:
           type: string
           format: uuid
+          description: 唯一識別碼（內部使用）
+        no:
+          type: integer
+          minimum: 1
+          description: A 欄：序號
         item_no:
           type: string
-          description: 項次編號
+          description: B 欄：項目編號
         description:
           type: string
-          description: 品名描述
-        photo_path:
+          description: C 欄：品名描述
+        photo_base64:
           type: string
-          description: 圖片路徑
-        photo_url:
-          type: string
-          description: 圖片 API URL
+          description: D 欄：圖片 Base64 編碼
+          nullable: true
         dimension:
           type: string
-          description: 尺寸
+          description: E 欄：尺寸 WxDxH (mm)
+          nullable: true
         qty:
           type: number
+          description: F 欄：數量
           nullable: true
-          description: 數量
         uom:
           type: string
-          description: 單位
+          description: G 欄：單位（ea, m, set 等）
+          nullable: true
+        unit_cbm:
+          type: number
+          description: J 欄：單位材積
+          nullable: true
+        note:
+          type: string
+          description: L 欄：備註
+          nullable: true
         location:
           type: string
-          description: 位置
+          description: M 欄：位置
+          nullable: true
         materials_specs:
           type: string
-          description: 使用材料/規格
-        source_type:
+          description: N 欄：使用材料/規格
+          nullable: true
+        brand:
           type: string
-          enum: [boq, floor_plan, manual]
+          description: O 欄：品牌
+          nullable: true
         source_document_id:
           type: string
+          description: 來源文件 ID（內部使用）
         source_page:
           type: integer
-        source_location:
-          type: string
-          description: 原始 PDF 中的位置
-        qty_verified:
-          type: boolean
-        qty_source:
-          type: string
-          enum: [boq, floor_plan]
+          description: 來源頁碼（內部使用）
           nullable: true
 
     ExtractedImage:

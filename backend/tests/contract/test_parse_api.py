@@ -16,14 +16,14 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        response = client.post(f"/api/parse/{doc_id}")
+        response = client.post(f"/api/documents/{doc_id}/parse")
 
         assert response.status_code == 202
         data = response.json()
@@ -36,7 +36,7 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
@@ -44,7 +44,7 @@ class TestParseStartEndpoint:
 
         # Start parsing with options
         response = client.post(
-            f"/api/parse/{doc_id}",
+            f"/api/documents/{doc_id}/parse",
             json={
                 "extract_images": True,
                 "target_categories": ["活動家具"],
@@ -58,7 +58,7 @@ class TestParseStartEndpoint:
 
     def test_start_parsing_document_not_found(self, client: TestClient):
         """Test parsing non-existent document."""
-        response = client.post("/api/parse/invalid-id")
+        response = client.post("/api/documents/invalid-id/parse")
 
         assert response.status_code == 404
         data = response.json()
@@ -69,14 +69,14 @@ class TestParseStartEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        response = client.post(f"/api/parse/{doc_id}")
+        response = client.post(f"/api/documents/{doc_id}/parse")
 
         assert response.status_code == 202
         data = response.json()
@@ -101,14 +101,14 @@ class TestParseResultEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Get result immediately (should not be ready)
-        response = client.get(f"/api/parse/{doc_id}/result")
+        response = client.get(f"/api/documents/{doc_id}/parse-result")
 
         # Either 404 or 202 (not ready) are acceptable
         assert response.status_code in [202, 404, 400]
@@ -118,7 +118,7 @@ class TestParseResultEndpoint:
 
     def test_get_parse_result_not_found(self, client: TestClient):
         """Test getting result for non-existent document."""
-        response = client.get("/api/parse/invalid-id/result")
+        response = client.get("/api/documents/invalid-id/parse-result")
 
         assert response.status_code == 404
         data = response.json()
@@ -129,17 +129,17 @@ class TestParseResultEndpoint:
         # Upload first
         with open(sample_pdf_file, "rb") as f:
             upload_response = client.post(
-                "/api/upload",
+                "/api/documents",
                 files={"files": (sample_pdf_file.name, f, "application/pdf")},
             )
 
         doc_id = upload_response.json()["data"]["documents"][0]["id"]
 
         # Start parsing
-        client.post(f"/api/parse/{doc_id}")
+        client.post(f"/api/documents/{doc_id}/parse")
 
         # Attempt to get result
-        response = client.get(f"/api/parse/{doc_id}/result")
+        response = client.get(f"/api/documents/{doc_id}/parse-result")
 
         data = response.json()
 

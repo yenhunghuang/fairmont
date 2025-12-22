@@ -22,40 +22,31 @@ from typing import Optional, Literal
 from datetime import datetime
 
 class BOQItem(BaseModel):
-    """BOQ 項目資料模型"""
+    """BOQ 項目資料模型（完全比照惠而蒙格式 15 欄）"""
 
-    # 主鍵（系統產生）
+    # 主鍵（系統產生，內部使用）
     id: str = Field(..., description="唯一識別碼 (UUID)")
 
-    # 核心欄位（惠而蒙格式 10 欄，排除價格/金額欄位）
-    no: int = Field(..., ge=1, description="序號 (NO.)")
-    item_no: str = Field(..., description="項目編號 (Item No.)")
-    description: str = Field(..., description="描述 (Description)")
-    photo_path: Optional[str] = Field(None, description="圖片檔案路徑 (Photo)")
-    dimension: Optional[str] = Field(None, description="尺寸規格 WxDxH mm (Dimension)")
-    qty: Optional[float] = Field(None, ge=0, description="數量 (Qty)")
-    uom: Optional[str] = Field(None, description="單位 (UOM)，如：ea, m, set")
-    note: Optional[str] = Field(None, description="備註 (Note)")
-    location: Optional[str] = Field(None, description="位置/區域 (Location)")
-    materials_specs: Optional[str] = Field(None, description="材料/規格 (Materials Used / Specs)")
+    # Excel 欄位（完全比照範本 15 欄）
+    no: int = Field(..., ge=1, description="A: 序號 (NO.)")
+    item_no: str = Field(..., description="B: 項目編號 (Item no.)")
+    description: str = Field(..., description="C: 描述 (Description)")
+    photo_base64: Optional[str] = Field(None, description="D: 圖片 Base64 編碼 (Photo)")
+    dimension: Optional[str] = Field(None, description="E: 尺寸規格 WxDxH mm (Dimension)")
+    qty: Optional[float] = Field(None, ge=0, description="F: 數量 (Qty)")
+    uom: Optional[str] = Field(None, description="G: 單位 (UOM)，如：ea, m, set")
+    # H: Unit Rate - 不儲存，留空由使用者填寫
+    # I: Amount - 不儲存，留空由使用者填寫
+    unit_cbm: Optional[float] = Field(None, ge=0, description="J: 單位材積 (Unit CBM)")
+    # K: Total CBM - 公式計算 =F*J
+    note: Optional[str] = Field(None, description="L: 備註 (Note)")
+    location: Optional[str] = Field(None, description="M: 位置/區域 (Location)")
+    materials_specs: Optional[str] = Field(None, description="N: 材料/規格 (Materials Used / Specs)")
+    brand: Optional[str] = Field(None, description="O: 品牌 (Brand)")
 
-    # 來源追蹤
-    source_type: Literal["boq", "floor_plan", "manual"] = Field(
-        "boq", description="資料來源類型"
-    )
+    # 內部追蹤欄位（不輸出到 Excel）
     source_document_id: str = Field(..., description="來源文件 ID")
     source_page: Optional[int] = Field(None, ge=1, description="來源頁碼")
-    source_location: Optional[str] = Field(None, description="原始 PDF 中的位置描述")
-
-    # 驗證狀態
-    qty_verified: bool = Field(False, description="數量是否已核對")
-    qty_source: Optional[Literal["boq", "floor_plan"]] = Field(
-        None, description="數量資料來源"
-    )
-
-    # 時間戳記
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
 
     @field_validator("item_no")
     @classmethod
@@ -76,22 +67,26 @@ class BOQItem(BaseModel):
 
 #### 欄位說明
 
-| 欄位 | 類型 | 必填 | 說明 | 驗證規則 |
-|------|------|------|------|----------|
-| id | string | ✅ | UUID 格式唯一識別碼 | 系統自動產生 |
-| no | int | ✅ | 序號 (NO.) | ≥ 1，系統產生 |
-| item_no | string | ✅ | 項目編號 (Item No.) | 不可為空 |
-| description | string | ✅ | 描述 (Description) | 不可為空 |
-| photo_path | string | ❌ | 圖片檔案路徑 (Photo) | 有效路徑或 null |
-| dimension | string | ❌ | 尺寸規格 WxDxH mm (Dimension) | - |
-| qty | float | ❌ | 數量 (Qty) | ≥ 0 |
-| uom | string | ❌ | 單位 (UOM)，如：ea, m, set | - |
-| note | string | ❌ | 備註 (Note) | - |
-| location | string | ❌ | 位置/區域 (Location) | - |
-| materials_specs | string | ❌ | 材料/規格 (Materials Used / Specs) | - |
-| source_type | enum | ✅ | 資料來源：boq/floor_plan/manual | 限定值 |
-| source_document_id | string | ✅ | 來源文件 ID | 有效 UUID |
-| source_page | int | ❌ | 來源頁碼 | ≥ 1 |
+| 欄位 | 類型 | 必填 | Excel 欄位 | 說明 | 驗證規則 |
+|------|------|------|------------|------|----------|
+| id | string | ✅ | *(內部)* | UUID 格式唯一識別碼 | 系統自動產生 |
+| no | int | ✅ | A: NO. | 序號 | ≥ 1，系統產生 |
+| item_no | string | ✅ | B: Item no. | 項目編號 | 不可為空 |
+| description | string | ✅ | C: Description | 描述 | 不可為空 |
+| photo_base64 | string | ❌ | D: Photo | Base64 編碼圖片 | - |
+| dimension | string | ❌ | E: Dimension | 尺寸規格 WxDxH mm | - |
+| qty | float | ❌ | F: Qty | 數量 | ≥ 0 |
+| uom | string | ❌ | G: UOM | 單位，如：ea, m, set | - |
+| *(不儲存)* | - | - | H: Unit Rate | 單價 | **使用者填寫** |
+| *(不儲存)* | - | - | I: Amount | 金額 | **使用者填寫** |
+| unit_cbm | float | ❌ | J: Unit CBM | 單位材積 | ≥ 0 |
+| *(公式)* | - | - | K: Total CBM | 總材積 | `=F*J` |
+| note | string | ❌ | L: Note | 備註 | - |
+| location | string | ❌ | M: Location | 位置/區域 | - |
+| materials_specs | string | ❌ | N: Materials Used / Specs | 材料/規格 | - |
+| brand | string | ❌ | O: Brand | 品牌 | - |
+| source_document_id | string | ✅ | *(內部)* | 來源文件 ID | 有效 UUID |
+| source_page | int | ❌ | *(內部)* | 來源頁碼 | ≥ 1 |
 
 ---
 
@@ -382,20 +377,25 @@ class ExtractedImage(BaseModel):
 ## 惠而蒙格式欄位對照
 
 > 參考範例：`docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx`
-> 注意：排除價格/金額欄位（Unit Rate, Amount, Unit CBM, Total CBM），這些由用戶手動填寫
+> **完全比照範本 15 欄**，不包含額外追蹤欄位
 
-| Excel 欄位 | 資料模型欄位 | 說明 |
-|------------|--------------|------|
-| A: NO. | `BOQItem.no` | 序號（系統產生） |
-| B: Item No. | `BOQItem.item_no` | 項目編號 |
-| C: Description | `BOQItem.description` | 描述 |
-| D: Photo | `BOQItem.photo_path` → 嵌入圖片 | 圖片儲存格 |
-| E: Dimension | `BOQItem.dimension` | 尺寸規格 WxDxH (mm) |
-| F: Qty | `BOQItem.qty` | 數量 |
-| G: UOM | `BOQItem.uom` | 單位 |
-| H: Note | `BOQItem.note` | 備註 |
-| I: Location | `BOQItem.location` | 位置 |
-| J: Materials Used/Specs | `BOQItem.materials_specs` | 材料/規格 |
+| Excel 欄位 | 資料模型欄位 | 說明 | 資料來源 |
+|------------|--------------|------|----------|
+| A: NO. | `BOQItem.no` | 序號 | 系統產生 |
+| B: Item no. | `BOQItem.item_no` | 項目編號 | PDF 解析 |
+| C: Description | `BOQItem.description` | 描述 | PDF 解析 |
+| D: Photo | `BOQItem.photo_base64` | 圖片（Base64 編碼嵌入儲存格） | PDF 提取 |
+| E: Dimension WxDxH (mm) | `BOQItem.dimension` | 尺寸規格 | PDF 解析 |
+| F: Qty | `BOQItem.qty` | 數量 | PDF 解析 |
+| G: UOM | `BOQItem.uom` | 單位 | PDF 解析 |
+| H: Unit Rate (USD) | *(留空)* | 單價 | **使用者填寫** |
+| I: Amount (USD) | *(留空)* | 金額 | **使用者填寫** |
+| J: Unit CBM | `BOQItem.unit_cbm` | 單位材積 | PDF 解析（若有） |
+| K: Total CBM | *(公式 =F*J)* | 總材積 | 計算欄位 |
+| L: Note | `BOQItem.note` | 備註 | PDF 解析 |
+| M: Location | `BOQItem.location` | 位置 | PDF 解析 |
+| N: Materials Used / Specs | `BOQItem.materials_specs` | 材料/規格 | PDF 解析 |
+| O: Brand | `BOQItem.brand` | 品牌 | PDF 解析（若有） |
 
 ---
 

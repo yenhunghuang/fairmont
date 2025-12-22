@@ -4,12 +4,19 @@ import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
+# 計算專案根目錄的絕對路徑（相對於此文件的位置）
+_THIS_DIR = Path(__file__).parent  # backend/app/
+_BACKEND_ROOT = _THIS_DIR.parent  # backend/
+_PROJECT_ROOT = _BACKEND_ROOT.parent  # Fairmont/
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env file."""
 
     # Gemini API Configuration
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-Pro"
 
     # Backend Configuration
     backend_host: str = "localhost"
@@ -19,9 +26,9 @@ class Settings(BaseSettings):
     # Frontend Configuration
     frontend_port: int = 8501
 
-    # File Management
-    temp_dir: str = "./backend/temp_files"
-    extracted_images_dir: str = "./backend/extracted_images"
+    # File Management - 使用絕對路徑以避免從不同目錄啟動時的路徑問題
+    temp_dir: str = str(_BACKEND_ROOT / "temp_files")
+    extracted_images_dir: str = str(_BACKEND_ROOT / "extracted_images")
     max_file_size_mb: int = 50
     max_files: int = 5
 
@@ -31,15 +38,21 @@ class Settings(BaseSettings):
     # Computed paths
     @property
     def temp_dir_path(self) -> Path:
-        """Get temp directory path as Path object."""
+        """Get temp directory path as Path object (always absolute)."""
         path = Path(self.temp_dir)
+        # 如果是相對路徑，基於專案根目錄解析
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @property
     def extracted_images_dir_path(self) -> Path:
-        """Get extracted images directory path as Path object."""
+        """Get extracted images directory path as Path object (always absolute)."""
         path = Path(self.extracted_images_dir)
+        # 如果是相對路徑，基於專案根目錄解析
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -48,25 +61,11 @@ class Settings(BaseSettings):
         """Get max file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
 
-    class Config:
-        """Pydantic settings configuration."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-
-        # Allow loading from environment variables with underscores or hyphens
-        fields = {
-            "gemini_api_key": {"env": "GEMINI_API_KEY"},
-            "backend_host": {"env": "BACKEND_HOST"},
-            "backend_port": {"env": "BACKEND_PORT"},
-            "backend_debug": {"env": "BACKEND_DEBUG"},
-            "frontend_port": {"env": "FRONTEND_PORT"},
-            "temp_dir": {"env": "TEMP_DIR"},
-            "extracted_images_dir": {"env": "EXTRACTED_IMAGES_DIR"},
-            "max_file_size_mb": {"env": "MAX_FILE_SIZE_MB"},
-            "max_files": {"env": "MAX_FILES"},
-            "log_level": {"env": "LOG_LEVEL"},
-        }
+    model_config = {
+        "env_file": str(_ENV_FILE),
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+    }
 
 
 def get_settings() -> Settings:

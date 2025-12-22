@@ -3,6 +3,73 @@
 **Feature Branch**: `001-furniture-quotation-system`
 **Date**: 2025-12-19
 **Status**: Completed
+**Updated**: 2025-12-19 - Excel 輸出格式更新（完全比照範本 15 欄）
+
+---
+
+## 0. Excel 範本欄位結構分析
+
+### 研究結果
+
+**來源檔案**: `docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx`
+
+**決定**: Excel 輸出共 **15 欄**，完全比照範本格式，不需額外追蹤欄位
+
+**理由**: 使用者明確要求「輸出欄位完全比照範本」
+
+**欄位定義**:
+
+| 欄位 | Excel Column | 寬度 | 說明 | 資料來源 |
+|------|--------------|------|------|----------|
+| NO. | A | 4.66 | 序號 | 系統自動產生 |
+| Item no. | B | 12.66 | 項目編號 | PDF 解析 |
+| Description | C | 16.66 | 品名描述 | PDF 解析 |
+| Photo | D | 13.0 | 圖片 | PDF 提取，**Base64 編碼** |
+| Dimension WxDxH (mm) | E | 29.11 | 尺寸規格 | PDF 解析 |
+| Qty | F | 6.66 | 數量 | PDF 解析 |
+| UOM | G | 5.66 | 單位 | PDF 解析 |
+| Unit Rate (USD) | H | 13.33 | 單價 | **留空**（使用者填寫） |
+| Amount (USD) | I | 14.66 | 金額 | **留空**（使用者填寫） |
+| Unit CBM | J | 6.66 | 單位材積 | PDF 解析（若有） |
+| Total CBM | K | 7.33 | 總材積 | 公式計算 `=F*J` |
+| Note | L | 25.66 | 備註 | PDF 解析 |
+| Location | M | 13.0 | 位置 | PDF 解析 |
+| Materials Used / Specs | N | 13.0 | 材料規格 | PDF 解析 |
+| Brand | O | 13.0 | 品牌 | PDF 解析（若有） |
+
+**表頭位置**: Row 16（Row 17 為單位說明行）
+**資料起始行**: Row 18
+
+### 圖片處理方式
+
+**決定**: 使用 **Base64 編碼**儲存圖片
+
+**理由**: 使用者明確指定使用 Base64
+
+**實作方式**:
+```python
+import base64
+from io import BytesIO
+from openpyxl.drawing.image import Image as XLImage
+
+def embed_base64_image(worksheet, cell: str, base64_data: str, height_cm: float = 3.0):
+    """將 Base64 圖片嵌入 Excel 儲存格"""
+    image_data = base64.b64decode(base64_data)
+    image_stream = BytesIO(image_data)
+    img = XLImage(image_stream)
+
+    # 設定尺寸
+    pixels_per_cm = 37.795275591
+    target_height_px = height_cm * pixels_per_cm
+    aspect_ratio = img.width / img.height
+    img.height = target_height_px
+    img.width = target_height_px * aspect_ratio
+    img.anchor = cell
+
+    worksheet.add_image(img)
+```
+
+---
 
 ## 1. Google Gemini API PDF 解析
 
@@ -344,19 +411,24 @@ from io import BytesIO
 from typing import List
 import os
 
-# 惠而蒙格式欄位定義（10 欄，排除價格/金額欄位）
+# 惠而蒙格式欄位定義（15 欄，完全比照範本）
 # 參考範例：docs/RFQ FORM-FTQ25106_報價Excel Form.xlsx
 COLUMNS = [
     ("A", "NO.", 5),
-    ("B", "Item No.", 12),
-    ("C", "Description", 20),
-    ("D", "Photo", 20),
-    ("E", "Dimension\nWxDxH (mm)", 18),
-    ("F", "Qty", 8),
-    ("G", "UOM", 8),
-    ("H", "Note", 25),
-    ("I", "Location", 20),
-    ("J", "Materials Used / Specs", 40),
+    ("B", "Item no.", 13),
+    ("C", "Description", 17),
+    ("D", "Photo", 13),
+    ("E", "Dimension\nWxDxH", 29),
+    ("F", "Qty", 7),
+    ("G", "UOM", 6),
+    ("H", "Unit Rate", 13),    # 留空 - 使用者填寫
+    ("I", "Amount", 15),       # 留空 - 使用者填寫
+    ("J", "Unit\nCBM", 7),
+    ("K", "Total\nCBM", 7),    # 公式: =F*J
+    ("L", "Note", 26),
+    ("M", "Location", 13),
+    ("N", "Materials Used / Specs", 13),
+    ("O", "Brand", 13),
 ]
 
 def create_quotation_excel(
@@ -405,23 +477,32 @@ def create_quotation_excel(
         # 設定列高（容納圖片）
         ws.row_dimensions[row_idx].height = row_height_points
 
-        # 寫入資料（10 欄）
-        ws[f"A{row_idx}"] = item.get("no", row_idx - 1)  # 序號
-        ws[f"B{row_idx}"] = item.get("item_no", "")
-        ws[f"C{row_idx}"] = item.get("description", "")
-        # D 欄：圖片（稍後處理）
-        ws[f"E{row_idx}"] = item.get("dimension", "")
-        ws[f"F{row_idx}"] = item.get("qty", "")
-        ws[f"G{row_idx}"] = item.get("uom", "")
-        ws[f"H{row_idx}"] = item.get("note", "")
-        ws[f"I{row_idx}"] = item.get("location", "")
-        ws[f"J{row_idx}"] = item.get("materials_specs", "")
+        # 寫入資料（15 欄，完全比照範本）
+        ws[f"A{row_idx}"] = item.get("no", row_idx - 1)      # A: NO.
+        ws[f"B{row_idx}"] = item.get("item_no", "")          # B: Item no.
+        ws[f"C{row_idx}"] = item.get("description", "")      # C: Description
+        # D 欄：Photo（Base64 圖片嵌入）
+        ws[f"E{row_idx}"] = item.get("dimension", "")        # E: Dimension
+        ws[f"F{row_idx}"] = item.get("qty", "")              # F: Qty
+        ws[f"G{row_idx}"] = item.get("uom", "")              # G: UOM
+        # H: Unit Rate - 留空（使用者填寫）
+        # I: Amount - 留空（使用者填寫）
+        ws[f"J{row_idx}"] = item.get("unit_cbm", "")         # J: Unit CBM
+        # K: Total CBM - 公式
+        if item.get("unit_cbm"):
+            ws[f"K{row_idx}"] = f"=F{row_idx}*J{row_idx}"
+        ws[f"L{row_idx}"] = item.get("note", "")             # L: Note
+        ws[f"M{row_idx}"] = item.get("location", "")         # M: Location
+        ws[f"N{row_idx}"] = item.get("materials_specs", "")  # N: Materials Used / Specs
+        ws[f"O{row_idx}"] = item.get("brand", "")            # O: Brand
 
-        # 嵌入圖片
-        image_path = item.get("photo_path")
-        if image_path and os.path.exists(image_path):
+        # 嵌入 Base64 圖片
+        photo_base64 = item.get("photo_base64")
+        if photo_base64:
             try:
-                img = XLImage(image_path)
+                image_data = base64.b64decode(photo_base64)
+                image_stream = BytesIO(image_data)
+                img = XLImage(image_stream)
 
                 # 調整圖片尺寸
                 target_height = image_height_cm * 37.795  # cm to pixels
