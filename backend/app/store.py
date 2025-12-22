@@ -75,7 +75,7 @@ class InMemoryStore:
             APIError: If document not found
         """
         if document_id not in self.documents:
-            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在")
+            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
         return self.documents[document_id]
 
     def list_documents(self) -> List[SourceDocument]:
@@ -95,7 +95,7 @@ class InMemoryStore:
             document: Updated SourceDocument
         """
         if document.id not in self.documents:
-            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在")
+            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
         self.documents[document.id] = document
         self.document_cache[document.id] = document
         logger.info(f"Document updated: {document.id}")
@@ -108,7 +108,7 @@ class InMemoryStore:
             document_id: Document ID to delete
         """
         if document_id not in self.documents:
-            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在")
+            raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
         del self.documents[document_id]
         self.document_cache.pop(document_id, None)
         logger.info(f"Document deleted: {document_id}")
@@ -139,7 +139,7 @@ class InMemoryStore:
             APIError: If item not found
         """
         if item_id not in self.boq_items:
-            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "項目不存在")
+            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "項目不存在", status_code=404)
         return self.boq_items[item_id]
 
     def get_items_by_document(self, document_id: str) -> List[BOQItem]:
@@ -163,7 +163,7 @@ class InMemoryStore:
             item: Updated BOQItem
         """
         if item.id not in self.boq_items:
-            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "項目不存在")
+            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "項目不存在", status_code=404)
         self.boq_items[item.id] = item
         logger.info(f"BOQ item updated: {item.id}")
 
@@ -194,7 +194,7 @@ class InMemoryStore:
             APIError: If quotation not found
         """
         if quotation_id not in self.quotations:
-            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在")
+            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在", status_code=404)
         return self.quotations[quotation_id]
 
     def list_quotations(self) -> List[Quotation]:
@@ -214,7 +214,7 @@ class InMemoryStore:
             quotation: Updated Quotation
         """
         if quotation.id not in self.quotations:
-            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在")
+            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在", status_code=404)
         self.quotations[quotation.id] = quotation
         self.quotation_cache[quotation.id] = quotation
         logger.info(f"Quotation updated: {quotation.id}")
@@ -227,7 +227,7 @@ class InMemoryStore:
             quotation_id: Quotation ID to delete
         """
         if quotation_id not in self.quotations:
-            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在")
+            raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在", status_code=404)
         del self.quotations[quotation_id]
         self.quotation_cache.pop(quotation_id, None)
         logger.info(f"Quotation deleted: {quotation_id}")
@@ -259,7 +259,7 @@ class InMemoryStore:
             APIError: If task not found
         """
         if task_id not in self.processing_tasks:
-            raise_error(ErrorCode.TASK_NOT_FOUND, "任務不存在")
+            raise_error(ErrorCode.TASK_NOT_FOUND, "任務不存在", status_code=404)
         return self.processing_tasks[task_id]
 
     def update_task(self, task: ProcessingTask) -> None:
@@ -270,7 +270,7 @@ class InMemoryStore:
             task: Updated ProcessingTask
         """
         if task.task_id not in self.processing_tasks:
-            raise_error(ErrorCode.TASK_NOT_FOUND, "任務不存在")
+            raise_error(ErrorCode.TASK_NOT_FOUND, "任務不存在", status_code=404)
         self.processing_tasks[task.task_id] = task
         self.task_cache[task.task_id] = task
         logger.debug(f"Task updated: {task.task_id}")
@@ -328,7 +328,7 @@ class InMemoryStore:
             APIError: If image not found
         """
         if image_id not in self.extracted_images:
-            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "圖片不存在")
+            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "圖片不存在", status_code=404)
         return self.extracted_images[image_id]
 
     def get_images_by_document(self, document_id: str) -> List[ExtractedImage]:

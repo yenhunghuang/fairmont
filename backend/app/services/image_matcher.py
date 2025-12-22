@@ -1,10 +1,10 @@
-"""Unified image matching service using Gemini Vision.
+"""Image matching service - finds first large image after each BOQ item.
 
-Strategy: Single API call that:
-1. Receives all images + all BOQ items
-2. Gemini identifies which images are product photos
-3. Gemini matches each product photo to the best BOQ item
-4. Returns only valid matches (non-product images excluded automatically)
+Strategy:
+1. For each BOQ item, find the first large image on same/next page
+2. Use Gemini to verify if image matches item description
+3. High confidence → use image
+4. Low confidence → leave blank for manual input
 """
 
 import logging
@@ -21,12 +21,13 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Basic size filter - only remove tiny images
-MIN_IMAGE_AREA = 3000  # Very small threshold, let Gemini decide
+# Image size thresholds
+MIN_LARGE_IMAGE_AREA = 20000  # Minimum area to be considered "large"
+CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence to use image
 
 
 class ImageMatcherService:
-    """Service for matching images to BOQ items using unified Gemini Vision approach."""
+    """Service for matching first large image to each BOQ item."""
 
     def __init__(self):
         """Initialize image matcher service."""
@@ -38,7 +39,7 @@ class ImageMatcherService:
             self.model = genai.GenerativeModel(settings.gemini_model)
             logger.info(f"ImageMatcherService initialized with Gemini: {settings.gemini_model}")
         except ImportError:
-            logger.warning("google-generativeai not installed, using page-based matching")
+            logger.warning("google-generativeai not installed")
             self.genai = None
             self.model = None
         except Exception as e:
@@ -52,71 +53,90 @@ class ImageMatcherService:
         boq_items: List[BOQItem],
     ) -> Dict[int, str]:
         """
-        Match images to BOQ items using unified Gemini Vision approach.
-
-        Single API call that:
-        - Identifies product photos vs logos/drawings
-        - Matches each product photo to the best BOQ item
+        Match first large image after each BOQ item.
 
         Args:
             images: List of dicts with {bytes, width, height, page, index}
             boq_items: List of BOQItem objects
 
         Returns:
-            Dict mapping image index to BOQ item ID (only valid matches)
+            Dict mapping image index to BOQ item ID
         """
         if not images or not boq_items:
             logger.info("No images or items to match")
             return {}
 
-        # Basic size filter only
-        valid_images = [
+        # Filter to large images only
+        large_images = [
             img for img in images
-            if img["width"] * img["height"] >= MIN_IMAGE_AREA
+            if img["width"] * img["height"] >= MIN_LARGE_IMAGE_AREA
         ]
 
-        if not valid_images:
-            logger.warning("No valid images after basic size filter")
+        if not large_images:
+            logger.warning("No large images found")
             return {}
 
-        logger.info(f"Processing {len(valid_images)} images for {len(boq_items)} BOQ items")
+        # Sort images by page, then by index (order in PDF)
+        large_images.sort(key=lambda x: (x["page"], x["index"]))
 
-        # Use Gemini Vision if available
+        # Group images by page
+        images_by_page = defaultdict(list)
+        for img in large_images:
+            images_by_page[img["page"]].append(img)
+
+        logger.info(f"Found {len(large_images)} large images across {len(images_by_page)} pages")
+
+        # For each BOQ item, find candidate image (first large image on same/next page)
+        candidates = []  # List of (item, image) pairs to verify
+        used_images = set()
+
+        for item in boq_items:
+            item_page = item.source_page or 1
+
+            # Look for first unused large image on same page or next page
+            candidate_img = None
+            for page in [item_page, item_page + 1]:
+                for img in images_by_page.get(page, []):
+                    if img["index"] not in used_images:
+                        candidate_img = img
+                        break
+                if candidate_img:
+                    break
+
+            if candidate_img:
+                candidates.append((item, candidate_img))
+                used_images.add(candidate_img["index"])
+
+        if not candidates:
+            logger.info("No candidate pairs found")
+            return {}
+
+        logger.info(f"Found {len(candidates)} candidate image-item pairs")
+
+        # Use Gemini to verify matches
         if self.model:
-            try:
-                return await self._unified_gemini_matching(valid_images, boq_items)
-            except Exception as e:
-                logger.error(f"Gemini matching failed: {e}")
-                return self._fallback_page_matching(valid_images, boq_items)
+            return await self._verify_matches_with_gemini(candidates)
         else:
-            return self._fallback_page_matching(valid_images, boq_items)
+            # Without Gemini, just use all candidates
+            return {img["index"]: item.id for item, img in candidates}
 
-    async def _unified_gemini_matching(
+    async def _verify_matches_with_gemini(
         self,
-        images: List[Dict],
-        boq_items: List[BOQItem],
+        candidates: List[tuple],
     ) -> Dict[int, str]:
-        """Single Gemini call for unified filtering + matching."""
+        """Verify each candidate pair with Gemini, return only confident matches."""
+        verified_matches = {}
+
+        # Process in batch for efficiency
         try:
-            # Build BOQ items info
-            items_info = []
-            for item in boq_items:
-                items_info.append({
-                    "id": item.id,
-                    "item_no": item.item_no,
-                    "description": item.description,
-                    "location": item.location or "",
-                    "page": item.source_page or 0,
-                })
-
-            # Convert images to PIL format
+            # Prepare all images and items info
             pil_images = []
-            image_indices = []
+            items_info = []
+            valid_candidates = []
 
-            for img_data in images:
+            for item, img_data in candidates:
                 try:
                     pil_img = Image.open(io.BytesIO(img_data["bytes"]))
-                    # Convert to RGB
                     if pil_img.mode == "RGBA":
                         bg = Image.new("RGB", pil_img.size, (255, 255, 255))
                         bg.paste(pil_img, mask=pil_img.split()[3])
@@ -124,24 +144,31 @@ class ImageMatcherService:
                     elif pil_img.mode != "RGB":
                         pil_img = pil_img.convert("RGB")
 
-                    # Resize large images to reduce API payload
-                    max_dim = 800
+                    # Resize if too large
+                    max_dim = 600
                     if pil_img.width > max_dim or pil_img.height > max_dim:
                         pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
 
                     pil_images.append(pil_img)
-                    image_indices.append(img_data["index"])
+                    items_info.append({
+                        "index": len(pil_images) - 1,
+                        "item_id": item.id,
+                        "item_no": item.item_no,
+                        "description": item.description,
+                        "image_index": img_data["index"],
+                    })
+                    valid_candidates.append((item, img_data))
                 except Exception as e:
-                    logger.warning(f"Failed to process image {img_data['index']}: {e}")
+                    logger.warning(f"Failed to process image: {e}")
 
             if not pil_images:
                 return {}
 
-            # Create unified prompt
-            prompt = self._create_unified_prompt(items_info, len(pil_images))
+            # Create verification prompt
+            prompt = self._create_verification_prompt(items_info)
 
-            # Single Gemini Vision API call
-            logger.info(f"Calling Gemini Vision: {len(pil_images)} images, {len(boq_items)} items")
+            # Call Gemini
+            logger.info(f"Verifying {len(pil_images)} candidate matches with Gemini")
             contents = [prompt] + pil_images
 
             response = await asyncio.to_thread(
@@ -150,137 +177,85 @@ class ImageMatcherService:
             )
 
             # Parse response
-            raw_mapping = self._parse_response(response)
+            verification_results = self._parse_verification_response(response)
 
-            # Convert prompt indices to original image indices
-            mapping = {}
-            for prompt_idx_str, item_id in raw_mapping.items():
-                try:
-                    prompt_idx = int(prompt_idx_str)
-                    if prompt_idx < len(image_indices):
-                        original_idx = image_indices[prompt_idx]
-                        mapping[original_idx] = item_id
-                except (ValueError, IndexError):
-                    pass
+            # Build final matches (only confident ones)
+            for info in items_info:
+                idx = str(info["index"])
+                if idx in verification_results:
+                    confidence = verification_results[idx].get("confidence", 0)
+                    is_match = verification_results[idx].get("match", False)
 
-            logger.info(f"Gemini matched {len(mapping)} images to items")
-            return mapping
+                    if is_match and confidence >= CONFIDENCE_THRESHOLD:
+                        verified_matches[info["image_index"]] = info["item_id"]
+                        logger.debug(
+                            f"Verified match: image {info['image_index']} -> {info['item_no']} "
+                            f"(confidence: {confidence})"
+                        )
+                    else:
+                        logger.debug(
+                            f"Rejected match: image {info['image_index']} -> {info['item_no']} "
+                            f"(confidence: {confidence}, match: {is_match})"
+                        )
+
+            logger.info(f"Verified {len(verified_matches)} confident matches out of {len(candidates)} candidates")
+            return verified_matches
 
         except Exception as e:
-            logger.error(f"Unified Gemini matching failed: {e}")
-            raise
+            logger.error(f"Gemini verification failed: {e}")
+            return {}
 
-    def _create_unified_prompt(self, items_info: List[Dict], image_count: int) -> str:
-        """Create unified prompt for Gemini - filtering + matching in one."""
-        items_json = json.dumps(items_info, ensure_ascii=False, indent=2)
+    def _create_verification_prompt(self, items_info: List[Dict]) -> str:
+        """Create prompt for verifying image-item matches."""
+        items_json = json.dumps(
+            [{"index": i["index"], "item_no": i["item_no"], "description": i["description"]}
+             for i in items_info],
+            ensure_ascii=False,
+            indent=2
+        )
 
-        return f"""你是家具報價單 (BOQ) 圖片分析專家。
+        return f"""你是家具圖片驗證專家。我提供 {len(items_info)} 張圖片，每張對應一個 BOQ 項目。
+請判斷每張圖片是否真的是該項目的產品照片。
 
-我提供 {image_count} 張從 PDF 提取的圖片，以及 BOQ 項目列表。
-請分析每張圖片，判斷是否為家具產品照片，並配對到最適合的 BOQ 項目。
-
-BOQ 項目列表：
+BOQ 項目對應：
 {items_json}
 
-分析規則：
-
-【排除這些圖片】不要配對：
-- 技術設計圖（黑白線條、CAD 圖面）
-- 建築平面圖、施工圖
-- 公司 Logo、品牌標誌
-- 表格、圖表、純文字
-- 過小或模糊無法辨識的圖片
-
-【配對這些圖片】應該配對：
-- 彩色家具產品照片
-- 真實拍攝的家具圖片
-- 產品展示照
-
-【配對邏輯】
-1. 根據圖片中的家具外觀判斷類型（床、椅、桌、櫃等）
-2. 比對 BOQ 項目的 description 欄位
-3. 參考頁碼 (page) 接近度作為輔助
-4. 每個 BOQ 項目最多配對一張最適合的圖片
-5. 不確定或無法配對的圖片請跳過
+判斷標準：
+1. 圖片必須是彩色產品照片（不是設計圖、平面圖、Logo）
+2. 圖片中的家具類型必須符合 description（例如：床的圖片配對床的項目）
+3. 給出信心度 0.0-1.0
 
 回應格式（JSON）：
-{{"0": "item_id", "2": "item_id", "5": "item_id"}}
+{{
+  "0": {{"match": true, "confidence": 0.9}},
+  "1": {{"match": false, "confidence": 0.3}},
+  "2": {{"match": true, "confidence": 0.85}}
+}}
 
-- 鍵 = 圖片索引（0-based）
-- 值 = BOQ 項目的 id
-- 只列出成功配對的圖片，跳過不適合的
-
-若沒有任何圖片可配對，回應：{{}}
+- 鍵 = 圖片索引（與上方列表對應）
+- match = 是否為正確的產品照片
+- confidence = 信心度（0.0-1.0）
 
 只返回 JSON，不要其他文字。"""
 
-    def _parse_response(self, response) -> Dict[str, str]:
-        """Parse JSON mapping from Gemini response."""
+    def _parse_verification_response(self, response) -> Dict[str, Dict]:
+        """Parse verification response from Gemini."""
         try:
             text = response.text.strip()
 
-            # Find JSON in response
             json_start = text.find("{")
             json_end = text.rfind("}") + 1
 
             if json_start == -1 or json_end <= json_start:
-                logger.warning("No valid JSON found in Gemini response")
+                logger.warning("No valid JSON in verification response")
                 return {}
 
-            json_str = text[json_start:json_end]
-            mapping = json.loads(json_str)
+            result = json.loads(text[json_start:json_end])
+            return result
 
-            # Filter out null values
-            return {k: v for k, v in mapping.items() if v is not None}
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Gemini: {e}")
-            logger.debug(f"Raw response: {response.text[:500]}")
-            return {}
         except Exception as e:
-            logger.error(f"Failed to parse Gemini response: {e}")
+            logger.error(f"Failed to parse verification response: {e}")
             return {}
-
-    def _fallback_page_matching(
-        self,
-        images: List[Dict],
-        boq_items: List[BOQItem],
-    ) -> Dict[int, str]:
-        """Fallback: Match images to items by page proximity."""
-        logger.info("Using page-based fallback matching")
-
-        # Group by page
-        images_by_page = defaultdict(list)
-        for img in images:
-            images_by_page[img["page"]].append(img)
-
-        items_by_page = defaultdict(list)
-        for item in boq_items:
-            items_by_page[item.source_page or 1].append(item)
-
-        # Match
-        mapping = {}
-        used_items = set()
-
-        for page in sorted(images_by_page.keys()):
-            page_images = images_by_page[page]
-
-            # Get items from same page or adjacent pages
-            candidates = []
-            for p in [page, page - 1, page + 1]:
-                for item in items_by_page.get(p, []):
-                    if item.id not in used_items:
-                        candidates.append(item)
-
-            # Match images to available items
-            for img in page_images:
-                if candidates:
-                    item = candidates.pop(0)
-                    mapping[img["index"]] = item.id
-                    used_items.add(item.id)
-
-        logger.info(f"Page-based matching: {len(mapping)} images")
-        return mapping
 
 
 # Global matcher instance
