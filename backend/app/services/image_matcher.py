@@ -229,12 +229,11 @@ class ImageMatcherService:
             f"(description: {boq_item.description})"
         )
 
-        best_match_verified = None
-        best_match_fallback = None
-        best_confidence_verified = 0.0
-        best_confidence_fallback = 0.0
+        best_match = None
+        best_confidence = 0.0
 
         # Validate candidates against item description
+        results = []  # Track all validation results for debugging
         for img in candidates:
             try:
                 is_match, confidence, reason = (
@@ -243,20 +242,23 @@ class ImageMatcherService:
                     )
                 )
 
+                results.append({
+                    "img_index": img["index"],
+                    "is_match": is_match,
+                    "confidence": confidence,
+                    "reason": reason,
+                })
+
                 logger.debug(
                     f"Image {img['index']} (page {img['page']}): "
                     f"match={is_match}, confidence={confidence:.2f}, reason={reason}"
                 )
 
-                # Track best verified match (is_match=True)
-                if is_match and confidence > best_confidence_verified:
-                    best_match_verified = img
-                    best_confidence_verified = confidence
-
-                # Track best fallback match (highest confidence regardless)
-                if confidence > best_confidence_fallback:
-                    best_match_fallback = img
-                    best_confidence_fallback = confidence
+                # Only consider images that Vision verified as matching
+                # Do NOT use fallback to non-matching images
+                if is_match and confidence > best_confidence:
+                    best_match = img
+                    best_confidence = confidence
 
             except Exception as e:
                 logger.warning(
@@ -264,24 +266,20 @@ class ImageMatcherService:
                 )
                 continue
 
-        # Prefer verified matches, but use fallback if available
-        best_match = best_match_verified or best_match_fallback
-
         if best_match:
-            match_type = "verified" if best_match == best_match_verified else "fallback"
-            best_confidence = (
-                best_confidence_verified
-                if best_match == best_match_verified
-                else best_confidence_fallback
-            )
             logger.info(
-                f"Best match ({match_type}) for {boq_item.item_no}: "
+                f"Best match (verified) for {boq_item.item_no}: "
                 f"image {best_match['index']} (confidence={best_confidence:.2f})"
             )
         else:
+            # Log all validation results for debugging when no match found
+            match_results_str = "; ".join([
+                f"img{r['img_index']}(is_match={r['is_match']},conf={r['confidence']:.2f})"
+                for r in results
+            ])
             logger.warning(
                 f"No matching images found for {boq_item.item_no} "
-                f"(threshold={min_confidence})"
+                f"(threshold={min_confidence}). Results: {match_results_str}"
             )
 
         return best_match
