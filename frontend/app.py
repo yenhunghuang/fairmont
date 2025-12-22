@@ -29,9 +29,19 @@ def init_session_state():
         st.session_state.quotation_id = None
 
 
+def get_api_client():
+    """Get API client from session state with fallback initialization."""
+    if "api_client" not in st.session_state:
+        init_session_state()
+    return st.session_state.api_client
+
+
+# Initialize session state at module level (before any page code runs)
+init_session_state()
+
+
 def main():
     """Main application entry point."""
-    init_session_state()
 
     # Sidebar navigation
     st.sidebar.title("家具報價單系統")

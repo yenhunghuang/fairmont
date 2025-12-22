@@ -10,12 +10,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from components.material_table import display_material_table
 from components.source_reference import display_document_info
 from components.progress_display import display_task_status
+from app import init_session_state, get_api_client
 
+# Ensure session state is initialized
+init_session_state()
 
-def init_session_state():
-    """Initialize session state."""
-    if "selected_quotation_id" not in st.session_state:
-        st.session_state.selected_quotation_id = None
+# Additional session state for preview page
+if "selected_quotation_id" not in st.session_state:
+    st.session_state.selected_quotation_id = None
 
 
 def fetch_documents():

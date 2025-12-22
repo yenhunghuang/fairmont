@@ -9,15 +9,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.file_uploader import file_uploader, display_upload_status
 from components.progress_display import wait_for_task_completion, display_completion_status
+from app import init_session_state, get_api_client
 
+# Ensure session state is initialized
+init_session_state()
 
-def init_session_state():
-    """Initialize session state."""
-    if "uploaded_documents" not in st.session_state:
-        st.session_state.uploaded_documents = []
-
-    if "current_task" not in st.session_state:
-        st.session_state.current_task = None
+# Additional session state for upload page
+if "current_task" not in st.session_state:
+    st.session_state.current_task = None
 
 
 def handle_upload_and_parse(uploaded_files, extract_images: bool = True):
