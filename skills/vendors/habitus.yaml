@@ -8,11 +8,82 @@ vendor:
   identifier: "habitus"
 
 # ============================================================
-# 文件結構定義
+# 文件類型定義（HABITUS 使用多種文件）
+# ============================================================
+document_types:
+  # 家具類明細表（有 Index 區塊）
+  furniture_specification:
+    description: "家具明細表 - 包含 Index 區塊 + 詳細規格"
+    filename_patterns:
+      - "Casegoods"
+      - "Seating"
+      - "Lighting"
+    has_index_section: true
+    provides:
+      - item_no
+      - description
+      - dimension
+      - location        # 從 Index 區塊的 @房型 提取
+      - materials_specs
+      - brand
+      - uom
+      - product_image
+    does_not_provide:
+      - qty             # 數量要從 quantity_summary 取得
+
+  # 面料類明細表（無 Index 區塊）
+  fabric_specification:
+    description: "面料明細表 - 直接是規格頁，無 Index"
+    filename_patterns:
+      - "Fabric"
+      - "Leather"
+      - "Vinyl"
+    has_index_section: false
+    provides:
+      - item_no
+      - description
+      - location        # 從 ITEM 欄位的 @家具編號 提取
+      - materials_specs
+      - brand
+      - product_image
+    location_source:
+      field: "ITEM"
+      description: "從 ITEM 欄位提取 @ 後面的家具編號"
+      example: "Fabric @ DLX-100 King Sized Bed and DLX-103 Queen Sized Bed"
+      extract_pattern: "@\\s*(.+?)$"
+    does_not_provide:
+      - qty
+      - dimension       # 面料沒有尺寸
+
+  # 數量總表
+  quantity_summary:
+    description: "數量總表 - 只包含 Item No. 和 Total Qty"
+    filename_patterns:
+      - "Overall Qty"
+      - "Quantity"
+      - "Summary"
+    provides:
+      - item_no
+      - qty             # 總數量（已彙整各房型）
+
+# ============================================================
+# 明細表內部結構（頁面類型）
 # ============================================================
 document_structure:
   # 頁面類型識別
   page_types:
+    index_page:
+      description: "索引頁 - 列出所有品項及其出現的房型"
+      identifiers:
+        - contains_text: "Index"
+        - contains_text: "Item #"
+        - contains_text: "Room"
+        - contains_text: "Quantity"
+      provides:
+        - item_no
+        - location       # 從 "@房型" 列表提取
+      note: "每個 Item No. 下方列出所有房型（以 @ 開頭）"
+
     specification_page:
       description: "規格頁 - 包含品項詳細資訊"
       identifiers:
@@ -20,6 +91,13 @@ document_structure:
         - contains_text: "PROJECT"
         - contains_text: "ITEM NO.:"
       has_product_image: false
+      provides:
+        - item_no
+        - description
+        - dimension
+        - materials_specs
+        - uom
+        - note
 
     attachment_page:
       description: "附件頁 - 包含產品圖和材質色票"
@@ -27,9 +105,11 @@ document_structure:
         - contains_text: "ATTACHMENTS:"
         - previous_page_type: "specification_page"
       has_product_image: true
+      provides:
+        - product_image
 
     drawing_page:
-      description: "工程圖頁 - 包含技術圖面"
+      description: "工程圖頁 - 包含技術圖面（不使用）"
       identifiers:
         - contains_text: "TOP VIEW"
         - contains_text: "FRONT VIEW"
@@ -37,13 +117,20 @@ document_structure:
         - contains_text: "SCALE:"
       has_product_image: false
 
-  # 品項頁面組成模式
-  item_page_pattern:
-    description: "每個品項由 2-4 頁組成"
-    sequence:
-      - specification_page  # 第 1 頁：規格
-      - attachment_page     # 第 2 頁：附件（產品圖在這）
-      - drawing_page        # 第 3-4 頁：工程圖（可選）
+  # 明細表頁面結構
+  page_sequence:
+    description: "明細表的頁面順序"
+    structure:
+      - section: "index"
+        pages: "1-2"
+        description: "索引區塊 - 品項與房型對照表"
+      - section: "items"
+        pages: "3+"
+        description: "詳細規格區塊 - 每個品項 2-4 頁"
+        item_page_pattern:
+          - specification_page  # 第 1 頁：規格
+          - attachment_page     # 第 2 頁：附件（產品圖在這）
+          - drawing_page        # 第 3-4 頁：工程圖（可選）
 
 # ============================================================
 # 圖片抓取規則
@@ -124,8 +211,44 @@ field_extraction:
     format: "WxDxH mm"
 
   location_field:
-    location: "specification_page"
-    pattern: "LOCATION:\\s*(.+?)(?=\\n)"
+    # 根據文件類型有不同的提取方式
+    furniture_extraction:
+      source: "index_page"
+      description: "從 Index 區塊的 @房型 列表合併"
+      extraction_rules:
+        - find_item_no_in_index: true
+        - collect_all_room_types: "以 @ 開頭的列"
+        - merge_similar_rooms: true  # Type A + Type B → (A/B)
+      abbreviation_rules:
+        - from: "King Deluxe Room Type A/B"
+          to: "King DLX (A/B)"
+        - from: "End King Deluxe Room"
+          to: "End King"
+        - from: "Grand King Deluxe Room Type A/B"
+          to: "Grand King (A/B)"
+        - from: "Double Deluxe Room Type A/B/C/D"
+          to: "Double DLX (A/B/C/D)"
+        - from: "Corner Grand King Room"
+          to: "Corner Grand King"
+
+    fabric_extraction:
+      source: "specification_page.ITEM"
+      description: "從 ITEM 欄位的 @ 後面提取應用的家具編號清單"
+      pattern: "ITEM:\\s*(?:Fabric|Leather|Vinyl)?\\s*@\\s*(.+?)(?=\\n|$)"
+      parsing_rules:
+        - step: "找到 @ 符號後的文字"
+        - step: "將 'and' 替換為 ','"
+        - step: "確保每個家具編號都有對應名稱"
+      examples:
+        - input: "ITEM: Fabric @ DLX-100 King Sized Bed and DLX-103 Queen Sized Bed"
+          output: "DLX-100 King Sized Bed, DLX-103 Queen Sized Bed"
+          explanation: "兩個獨立的家具項目，用逗號分隔"
+        - input: "ITEM: Fabric @ DLX-100.1 Budoir Pillow and DLX-103.1 Budoir Pillow"
+          output: "DLX-100.1 Budoir Pillow, DLX-103.1 Budoir Pillow"
+          explanation: "兩個獨立的枕頭項目"
+        - input: "ITEM: Fabric @ DLX-100.2 and DLX-103.2 Bed Runner/ Throw (Main Fabric)"
+          output: "DLX-100.2 Bed Runner, DLX-103.2 Bed Runner"
+          explanation: "共用名稱的兩個項目，每個都需要完整名稱"
 
   materials:
     location: "specification_page"
@@ -175,57 +298,52 @@ prompts:
       你正在解析 HABITUS Design Group 的家具規格書。
 
     user_template: |
-      請分析以下 PDF 內容，提取出家具報價單（BOQ）中的所有項目。
+      請分析 PDF 內容，提取 BOQ 項目。{categories_instruction}
 
-      {categories_instruction}
+      # ========== 輸出格式 ==========
+      JSON 陣列，每項包含：source_page, category, item_no, description, dimension, qty, uom, unit_cbm, note, location, materials_specs, brand
 
-      針對每個項目，請按照以下 JSON 格式提取（對應惠而蒙格式 15 欄）：
+      # ========== 欄位規則摘要 ==========
+      | 欄位 | furniture | fabric |
+      |------|-----------|--------|
+      | category | Casegoods/Seating/Lighting | Fabric/Leather/Vinyl（ITEM 含 "@"）|
+      | description | 品名（如 King Bed） | "<類型> to <家具編號>"（如 Vinyl to DLX-100）|
+      | dimension | L x W x H mm 或 Dia.{{直徑}} x H{{高}} | Vendor-Pattern-Color-Width plain/pattern |
+      | note | null（暫不處理） | null |
+      | location | Index @房型（簡寫合併） | ITEM @家具編號（and→逗號）|
+      | brand | 明確品牌名或 null | 明確品牌名或 null |
+      | uom | ea/set（預設 ea） | ea/m |
 
-      ```json
-      [
-        {{
-          "source_page": 項目所在的頁碼 (1-indexed),
-          "item_no": "項目編號 (B欄: Item no.)",
-          "description": "項目描述 (C欄: Description)",
-          "dimension": "尺寸 WxDxH mm (E欄: Dimension)",
-          "qty": 數量或 null (F欄: Qty),
-          "uom": "單位如 ea, m, set (G欄: UOM)",
-          "unit_cbm": 單位材積或 null (J欄: Unit CBM),
-          "note": "備註或說明 (L欄: Note)",
-          "location": "位置/區域 (M欄: Location)",
-          "materials_specs": "材料/規格說明 (N欄: Materials Used / Specs)",
-          "brand": "品牌或 null (O欄: Brand)"
-        }}
-      ]
-      ```
+      # ========== 解析原則 ==========
+      - 每頁只提取「主要項目」（有獨立 ITEM NO.），忽略 FURNITURE COM: 區塊內的面料
+      - source_page：根據 "--- Page N ---" 標記判斷
+      - item_no：如有 @ 符號，只取 @ 之前部分
 
-      欄位說明：
-      - source_page: 項目在 PDF 中的頁碼，必須根據文本中的 "--- Page N ---" 標記來判斷
-      - item_no: 項目編號，如 "DLX-100"、"FUR-001"（注意：如果編號中有 @ 符號，只取 @ 之前的部分作為 item_no）
-      - description: 品名描述，如 "King Bed"、"會議桌"
-      - dimension: 尺寸規格，格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
-      - qty: 數量，數字或 null
-      - uom: 單位，如 "ea"（個）、"m"（公尺）、"set"（組）
-      - unit_cbm: 單位材積（立方公尺），數字或 null
-      - note: 備註說明
-      - location: **重要** 位置/區域提取規則：
-        * 解析順序：先看詳細規格區取得家具資料，再查 Index 找到對應的 Location
-        * 從 Index 中查找此 Item No. 出現的所有 "@XX" 地點
-        * 如果有多個地點，用逗號分隔合併成一欄，如 "King DLX (A/B), End King, Grand King"
-        * 如果沒有找到 @ 符號，location 填 null
-        * 位置名稱簡寫規則：
-          - "King Deluxe Room Type A" + "King Deluxe Room Type B" → "King DLX (A/B)"
-          - "Standard Room Type A" + "Standard Room Type B" → "Standard (A/B)"
-          - "Grand King Room Type A" + "Grand King Room Type B" → "Grand King (A/B)"
-          - "End King" 保持原樣
-        * 面料類 (Fabric/Leather): 從 Item No. 欄位提取 "@XX" 後面的部分
-      - materials_specs: 使用材料/規格，如 "Vinyl: DLX-500 Taupe"
-      - brand: 只填寫明確標示的品牌名稱（如 "Fairmont"、"Herman Miller"）。注意：MFR、材料代碼、規格編號都不是品牌，請留 null
+      # ========== dimension 詳細規則 ==========
+      **furniture**：
+      - 從 "Overall Dimensions"/"OA"/"W x D x H" 提取，格式 "L x W x H" mm
+      - 圓形家具（含 Dia/Ø）格式 "Dia.{{直徑}} x H{{高}}"，如 "Dia.600 x H450"
 
-      PDF 內容：
+      **fabric**：
+      - 格式 "<Vendor>-<Pattern>-<Color>-<Width> <plain/pattern>"
+      - 範例："Morbern Europe-Prodigy PRO 682-Lt Neutral-137cmW plain"
+
+      # ========== location 詳細規則 ==========
+      **furniture**：從 Index 區塊找 @房型，簡寫合併（King Deluxe Room Type A/B → King DLX (A/B)）
+      **fabric**：從 ITEM 欄位 @ 後提取，"and" 替換為 ","
+      - 範例：ITEM "Fabric @ DLX-100 King Bed and DLX-103 Queen Bed" → "DLX-100 King Bed, DLX-103 Queen Bed"
+
+      # ========== uom 標準值 ==========
+      ea（預設）, set, m, roll, L, kg, sqm
+      轉換：pcs/piece→ea, meter/mtr→m, pair→set
+
+      # ========== note 規則 ==========
+      所有項目：null（暫不處理，待確認客戶需求）
+
+      # ========== PDF 內容 ==========
       {pdf_content}
 
-      請只返回 JSON 數組，不要包含其他文本。如果無法提取有效項目，返回空數組 []。
+      請只返回 JSON 數組。無有效項目則返回 []。
 
   parse_quantity_summary:
     system: |
