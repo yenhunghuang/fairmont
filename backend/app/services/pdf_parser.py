@@ -411,7 +411,7 @@ class PDFParserService:
             text_content = self.extract_text_from_pdf(file_path)
 
             # 1. Extract project metadata first
-            project_metadata = await self._extract_project_metadata(text_content)
+            project_metadata = await self._extract_project_metadata(text_content, document_id)
             logger.info(f"Extracted project metadata: {project_metadata}")
 
             # 2. Prepare prompt for BOQ items
@@ -441,7 +441,9 @@ class PDFParserService:
             logger.error(f"Gemini parsing failed: {e}")
             raise_error(ErrorCode.GEMINI_API_ERROR, f"Gemini 解析失敗：{str(e)}")
 
-    async def _extract_project_metadata(self, pdf_text: str) -> Dict[str, Any]:
+    async def _extract_project_metadata(
+        self, pdf_text: str, document_id: str = ""
+    ) -> Dict[str, Any]:
         """
         Extract project metadata from PDF text using Gemini AI.
 
@@ -449,6 +451,7 @@ class PDFParserService:
 
         Args:
             pdf_text: Extracted text from PDF
+            document_id: Document ID for tracking
 
         Returns:
             Dict containing project_name and area
@@ -456,17 +459,48 @@ class PDFParserService:
         if not self.model:
             return {}
 
+        observability = get_observability()
+
+        # Prepare trace metadata
+        skill_version = None
+        if self._skill is not None:
+            skill_version = self._skill.version
+
+        trace_metadata = TraceMetadata(
+            vendor_id=self.vendor_id,
+            skill_version=skill_version,
+            document_id=document_id,
+            operation="metadata_extraction",
+            model=settings.gemini_model,
+        )
+
         # Get prompt template (from Skill or default)
         template = self._get_project_metadata_prompt_template()
 
         # Format template with PDF content (limit to first 3000 chars for metadata)
         prompt = template.format(pdf_content=pdf_text[:3000])
 
+        start_time = datetime.utcnow()
         try:
             # Use simpler call without full retry (metadata extraction is optional)
             response = await asyncio.wait_for(
                 asyncio.to_thread(self.model.generate_content, prompt),
                 timeout=30,  # Shorter timeout for metadata
+            )
+
+            # Track successful call
+            usage = observability.track_gemini_call(
+                name="metadata_extraction",
+                prompt=prompt,
+                response=response,
+                metadata=trace_metadata,
+                start_time=start_time,
+            )
+
+            logger.info(
+                f"Metadata extraction successful: "
+                f"tokens={{input: {usage.prompt_tokens}, output: {usage.completion_tokens}, "
+                f"total: {usage.total_tokens}}}"
             )
 
             response_text = response.text
@@ -487,9 +521,25 @@ class PDFParserService:
 
         except asyncio.TimeoutError:
             logger.warning("Timeout extracting project metadata, skipping")
+            observability.track_gemini_call(
+                name="metadata_extraction",
+                prompt=prompt,
+                response=None,
+                metadata=trace_metadata,
+                start_time=start_time,
+                error="Timeout",
+            )
             return {}
         except Exception as e:
             logger.warning(f"Failed to extract project metadata: {e}")
+            observability.track_gemini_call(
+                name="metadata_extraction",
+                prompt=prompt,
+                response=None,
+                metadata=trace_metadata,
+                start_time=start_time,
+                error=str(e),
+            )
             return {}
 
     def _create_boq_extraction_prompt(
