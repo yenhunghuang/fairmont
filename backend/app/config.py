@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Environment
+    environment: str = "development"  # development, staging, production
+
     # Skills Configuration
     skills_dir: str = str(_PROJECT_ROOT / "skills")
     skills_cache_enabled: bool = True  # 生產環境啟用快取

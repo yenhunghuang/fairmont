@@ -46,6 +46,10 @@ class TestTraceMetadata:
         assert meta.document_id is None
         assert meta.operation == "unknown"
         assert meta.model == ""
+        assert meta.file_name is None
+        assert meta.page_count is None
+        assert meta.retry_count == 0
+        assert meta.environment == "development"
         assert meta.extra == {}
 
     def test_custom_values(self):
@@ -56,14 +60,22 @@ class TestTraceMetadata:
             document_id="doc-123",
             operation="boq_extraction",
             model="gemini-3-flash-preview",
-            extra={"page_count": 10},
+            file_name="test.pdf",
+            page_count=10,
+            retry_count=2,
+            environment="production",
+            extra={"custom_field": "value"},
         )
         assert meta.vendor_id == "habitus"
         assert meta.skill_version == "1.0.0"
         assert meta.document_id == "doc-123"
         assert meta.operation == "boq_extraction"
         assert meta.model == "gemini-3-flash-preview"
-        assert meta.extra == {"page_count": 10}
+        assert meta.file_name == "test.pdf"
+        assert meta.page_count == 10
+        assert meta.retry_count == 2
+        assert meta.environment == "production"
+        assert meta.extra == {"custom_field": "value"}
 
 
 class TestTokenUsageExtraction:

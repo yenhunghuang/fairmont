@@ -22,13 +22,30 @@ class TokenUsage:
 
 @dataclass
 class TraceMetadata:
-    """Metadata for a trace."""
+    """Metadata for a trace.
+
+    Attributes:
+        vendor_id: Vendor identifier (e.g., "habitus")
+        skill_version: Version of the skill YAML used
+        document_id: Source document ID
+        operation: Operation name (e.g., "boq_extraction")
+        model: LLM model name
+        file_name: Original file name being processed
+        page_count: Number of pages in PDF
+        retry_count: Number of retries attempted
+        environment: Environment (dev/staging/prod)
+        extra: Additional custom metadata
+    """
 
     vendor_id: Optional[str] = None
     skill_version: Optional[str] = None
     document_id: Optional[str] = None
     operation: str = "unknown"
     model: str = ""
+    file_name: Optional[str] = None
+    page_count: Optional[int] = None
+    retry_count: int = 0
+    environment: str = "development"
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -171,12 +188,20 @@ class ObservabilityService:
                 except Exception:
                     pass
 
-            # Build metadata dict
+            # Calculate latency
+            latency_ms = (end_time - start_time).total_seconds() * 1000
+
+            # Build metadata dict with all fields
             trace_metadata = {
                 "vendor_id": meta.vendor_id,
                 "skill_version": meta.skill_version,
                 "document_id": meta.document_id,
                 "operation": meta.operation,
+                "file_name": meta.file_name,
+                "page_count": meta.page_count,
+                "retry_count": meta.retry_count,
+                "environment": meta.environment,
+                "latency_ms": round(latency_ms, 2),
                 **meta.extra,
             }
 
@@ -185,6 +210,7 @@ class ObservabilityService:
                 name=f"pdf_parser.{name}",
                 metadata=trace_metadata,
                 user_id=meta.vendor_id,  # Use vendor as user for grouping
+                tags=[meta.environment, meta.operation],
             )
 
             # Record generation within trace

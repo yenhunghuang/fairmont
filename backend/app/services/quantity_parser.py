@@ -169,6 +169,7 @@ class QuantityParserService:
             document_id=document_id,
             operation="quantity_summary_extraction",
             model=self.settings.gemini_model,
+            environment=self.settings.environment,
         )
 
         try:

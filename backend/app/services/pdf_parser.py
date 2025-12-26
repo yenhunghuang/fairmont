@@ -286,10 +286,13 @@ class PDFParserService:
             document_id=document_id,
             operation=operation,
             model=settings.gemini_model,
+            retry_count=0,
+            environment=settings.environment,
         )
 
         for attempt in range(max_retries + 1):
             start_time = datetime.utcnow()
+            trace_metadata.retry_count = attempt  # Track retry count
             try:
                 logger.info(
                     f"Calling Gemini API for {operation} (document: {document_id}, "
@@ -472,6 +475,7 @@ class PDFParserService:
             document_id=document_id,
             operation="metadata_extraction",
             model=settings.gemini_model,
+            environment=settings.environment,
         )
 
         # Get prompt template (from Skill or default)

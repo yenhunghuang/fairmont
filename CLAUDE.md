@@ -55,6 +55,7 @@ streamlit run app.py
 - `LANGFUSE_PUBLIC_KEY`: LangFuse 公開金鑰（啟用追蹤時必要）
 - `LANGFUSE_SECRET_KEY`: LangFuse 密鑰（啟用追蹤時必要）
 - `LANGFUSE_HOST`: LangFuse 伺服器（預設 `https://cloud.langfuse.com`）
+- `ENVIRONMENT`: 環境標記（`development`/`staging`/`production`，預設 `development`）
 
 ### 非協商性標準（來自 constitution.md）
 
@@ -144,7 +145,7 @@ frontend/
 - **Token 消耗**: 輸入/輸出/總計 token 數
 - **延遲時間**: API 呼叫起訖時間
 - **Prompt/Response**: 完整的輸入提示與輸出結果
-- **Metadata**: vendor_id, skill_version, document_id, operation
+- **Metadata**: vendor_id, skill_version, document_id, operation, environment, retry_count, latency_ms
 
 ### 追蹤點
 
