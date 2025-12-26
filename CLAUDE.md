@@ -51,6 +51,10 @@ streamlit run app.py
 複製 `.env.example` 為 `.env`，設定必要環境變數：
 - `GEMINI_API_KEY`: Google Gemini AI API 金鑰（必要）
 - `GEMINI_MODEL`: Gemini 模型（預設 `gemini-3-flash-preview`）
+- `LANGFUSE_ENABLED`: 啟用 LangFuse 追蹤（預設 `false`）
+- `LANGFUSE_PUBLIC_KEY`: LangFuse 公開金鑰（啟用追蹤時必要）
+- `LANGFUSE_SECRET_KEY`: LangFuse 密鑰（啟用追蹤時必要）
+- `LANGFUSE_HOST`: LangFuse 伺服器（預設 `https://cloud.langfuse.com`）
 
 ### 非協商性標準（來自 constitution.md）
 
@@ -86,6 +90,9 @@ backend/app/
 │   └── ...                         # SourceDocument, Quotation, ProcessingTask
 ├── services/
 │   ├── pdf_parser.py               # PDF 解析（Gemini AI）
+│   ├── quantity_parser.py          # 數量總表解析（Gemini AI）
+│   ├── skill_loader.py             # Skill YAML 載入器
+│   ├── observability.py            # LangFuse 追蹤服務
 │   ├── image_extractor.py          # PDF 圖片提取
 │   ├── image_matcher_deterministic.py  # 確定性圖片-項目匹配
 │   └── excel_generator.py          # Excel 產出（惠而蒙格式）
@@ -127,6 +134,58 @@ frontend/
 - **價格欄位**: Unit Rate (H欄)、Amount (I欄) 留空由使用者填寫
 - **圖片匹配**: 僅使用確定性演算法，不使用 Vision API
 - **跨表合併**: 每次最多 1 個數量總表，多明細表依上傳順序合併
+
+## LLM 可觀測性 (LangFuse)
+
+系統使用 **LangFuse** 追蹤所有 Gemini API 呼叫，提供完整的 LLM 可觀測性：
+
+### 追蹤內容
+
+- **Token 消耗**: 輸入/輸出/總計 token 數
+- **延遲時間**: API 呼叫起訖時間
+- **Prompt/Response**: 完整的輸入提示與輸出結果
+- **Metadata**: vendor_id, skill_version, document_id, operation
+
+### 追蹤點
+
+| 服務 | 操作 | 說明 |
+|------|------|------|
+| `pdf_parser.py` | `BOQ extraction` | BOQ 項目提取 |
+| `pdf_parser.py` | `metadata_extraction` | 專案元數據提取 |
+| `quantity_parser.py` | `quantity_summary_extraction` | 數量總表解析 |
+
+### 啟用方式
+
+1. 在 LangFuse 建立專案，取得 API 金鑰
+2. 設定環境變數：
+   ```bash
+   LANGFUSE_ENABLED=true
+   LANGFUSE_PUBLIC_KEY=pk-xxx
+   LANGFUSE_SECRET_KEY=sk-xxx
+   ```
+3. 重啟服務即可開始追蹤
+
+### 使用方式
+
+```python
+from app.services.observability import get_observability, TraceMetadata
+
+observability = get_observability()
+
+# 追蹤 Gemini 呼叫
+usage = observability.track_gemini_call(
+    name="operation_name",
+    prompt=prompt,
+    response=gemini_response,
+    metadata=TraceMetadata(
+        vendor_id="habitus",
+        document_id="doc-123",
+        operation="boq_extraction",
+    ),
+)
+
+print(f"Total tokens: {usage.total_tokens}")
+```
 
 ## 惠而蒙 Excel 格式（共 15 欄）
 

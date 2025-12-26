@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     skills_dir: str = str(_PROJECT_ROOT / "skills")
     skills_cache_enabled: bool = True  # 生產環境啟用快取
 
+    # LangFuse Observability Configuration
+    langfuse_enabled: bool = False  # 預設關閉，需設定 API Key 後啟用
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"  # 或自架 LangFuse 伺服器
+    langfuse_release: str = "1.0.0"  # 版本標記
+
     # Computed paths
     @property
     def temp_dir_path(self) -> Path:

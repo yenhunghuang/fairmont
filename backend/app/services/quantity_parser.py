@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -15,6 +16,7 @@ import google.generativeai as genai
 
 from ..config import get_settings
 from ..models.quantity_summary import QuantitySummaryItem
+from .observability import get_observability, TraceMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,21 @@ class QuantityParserService:
         Returns:
             QuantitySummaryItem 列表
         """
+        observability = get_observability()
+
+        # Prepare trace metadata
+        skill_version = None
+        if self._skill is not None:
+            skill_version = self._skill.version
+
+        trace_metadata = TraceMetadata(
+            vendor_id=self.vendor_id,
+            skill_version=skill_version,
+            document_id=document_id,
+            operation="quantity_summary_extraction",
+            model=self.settings.gemini_model,
+        )
+
         try:
             if not self.model:
                 raise ValueError("Gemini API 未配置")
@@ -168,9 +185,25 @@ class QuantityParserService:
             prompt = template.format(pdf_content=text_content)
 
             # Call Gemini API (use asyncio.to_thread for sync call)
+            start_time = datetime.utcnow()
             response = await asyncio.wait_for(
                 asyncio.to_thread(self.model.generate_content, prompt),
                 timeout=self.settings.gemini_timeout_seconds,
+            )
+
+            # Track successful call
+            usage = observability.track_gemini_call(
+                name="quantity_summary_extraction",
+                prompt=prompt,
+                response=response,
+                metadata=trace_metadata,
+                start_time=start_time,
+            )
+
+            logger.info(
+                f"Gemini API call successful for quantity summary: "
+                f"tokens={{input: {usage.prompt_tokens}, output: {usage.completion_tokens}, "
+                f"total: {usage.total_tokens}}}"
             )
 
             # Parse response
@@ -181,10 +214,33 @@ class QuantityParserService:
             return items
 
         except asyncio.TimeoutError:
+            error_msg = f"Gemini API 呼叫超時（{self.settings.gemini_timeout_seconds} 秒）"
             logger.error(f"Gemini API timeout for quantity summary {file_path}")
-            raise ValueError(f"Gemini API 呼叫超時（{self.settings.gemini_timeout_seconds} 秒）")
+
+            # Track timeout
+            observability.track_gemini_call(
+                name="quantity_summary_extraction",
+                prompt=prompt if "prompt" in locals() else "",
+                response=None,
+                metadata=trace_metadata,
+                start_time=start_time if "start_time" in locals() else datetime.utcnow(),
+                error=error_msg,
+            )
+
+            raise ValueError(error_msg)
         except Exception as e:
             logger.error(f"Error parsing quantity summary {file_path}: {e}")
+
+            # Track error
+            observability.track_gemini_call(
+                name="quantity_summary_extraction",
+                prompt=prompt if "prompt" in locals() else "",
+                response=None,
+                metadata=trace_metadata,
+                start_time=start_time if "start_time" in locals() else datetime.utcnow(),
+                error=str(e),
+            )
+
             raise
 
     def _parse_gemini_response(

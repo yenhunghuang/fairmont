@@ -3,6 +3,7 @@
 import logging
 import fitz  # PyMuPDF
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import json
@@ -10,6 +11,7 @@ import json
 from ..models import BOQItem, SourceDocument
 from ..utils import ErrorCode, raise_error
 from ..config import settings
+from .observability import get_observability, TraceMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +257,7 @@ class PDFParserService:
         operation: str = "parse",
     ) -> Any:
         """
-        Call Gemini API with timeout and retry logic.
+        Call Gemini API with timeout, retry logic, and observability tracking.
 
         Args:
             prompt: The prompt to send
@@ -271,8 +273,23 @@ class PDFParserService:
         max_retries = settings.gemini_max_retries
         timeout_seconds = settings.gemini_timeout_seconds
         last_error = None
+        observability = get_observability()
+
+        # Prepare trace metadata
+        skill_version = None
+        if self._skill is not None:
+            skill_version = self._skill.version
+
+        trace_metadata = TraceMetadata(
+            vendor_id=self.vendor_id,
+            skill_version=skill_version,
+            document_id=document_id,
+            operation=operation,
+            model=settings.gemini_model,
+        )
 
         for attempt in range(max_retries + 1):
+            start_time = datetime.utcnow()
             try:
                 logger.info(
                     f"Calling Gemini API for {operation} (document: {document_id}, "
@@ -284,11 +301,38 @@ class PDFParserService:
                     asyncio.to_thread(self.model.generate_content, prompt),
                     timeout=timeout_seconds,
                 )
+
+                # Track successful call
+                usage = observability.track_gemini_call(
+                    name=operation,
+                    prompt=prompt,
+                    response=response,
+                    metadata=trace_metadata,
+                    start_time=start_time,
+                )
+
+                logger.info(
+                    f"Gemini API call successful for {operation}: "
+                    f"tokens={{input: {usage.prompt_tokens}, output: {usage.completion_tokens}, "
+                    f"total: {usage.total_tokens}}}"
+                )
+
                 return response
 
             except asyncio.TimeoutError:
                 last_error = f"API 呼叫超時（{timeout_seconds} 秒）"
                 logger.warning(f"Gemini API timeout for {document_id}, attempt {attempt + 1}")
+
+                # Track timeout
+                observability.track_gemini_call(
+                    name=operation,
+                    prompt=prompt,
+                    response=None,
+                    metadata=trace_metadata,
+                    start_time=start_time,
+                    error=last_error,
+                )
+
                 if attempt < max_retries:
                     # Exponential backoff: 2s, 4s, 8s...
                     wait_time = 2 ** (attempt + 1)
@@ -297,6 +341,17 @@ class PDFParserService:
 
             except Exception as e:
                 error_str = str(e).lower()
+
+                # Track error
+                observability.track_gemini_call(
+                    name=operation,
+                    prompt=prompt,
+                    response=None,
+                    metadata=trace_metadata,
+                    start_time=start_time,
+                    error=str(e),
+                )
+
                 # Check for specific errors that shouldn't be retried
                 if "api key" in error_str:
                     raise_error(ErrorCode.GEMINI_API_ERROR, "Gemini API Key 未設定或無效")
