@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Gemini API Configuration
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3-flash-preview"
+    gemini_timeout_seconds: int = 120  # API 呼叫超時（秒）
+    gemini_max_retries: int = 2  # 失敗時重試次數
 
     # Backend Configuration
     backend_host: str = "localhost"
@@ -34,6 +36,10 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # Skills Configuration
+    skills_dir: str = str(_PROJECT_ROOT / "skills")
+    skills_cache_enabled: bool = True  # 生產環境啟用快取
 
     # Computed paths
     @property
@@ -61,10 +67,19 @@ class Settings(BaseSettings):
         """Get max file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
 
+    @property
+    def skills_dir_path(self) -> Path:
+        """Get skills directory path as Path object (always absolute)."""
+        path = Path(self.skills_dir)
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
+        return path
+
     model_config = {
         "env_file": str(_ENV_FILE),
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
+        "extra": "ignore",  # 忽略 .env 中的額外變數（如已移除的 Google Sheets 設定）
     }
 
 

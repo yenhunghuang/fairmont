@@ -1,0 +1,305 @@
+# HABITUS Design Group - 供應商解析配置
+# 版本: 1.0.0
+# 更新日期: 2025-12-26
+# 適用文件: FF&E Specification PDFs
+
+vendor:
+  name: "HABITUS Design Group"
+  identifier: "habitus"
+
+# ============================================================
+# 文件結構定義
+# ============================================================
+document_structure:
+  # 頁面類型識別
+  page_types:
+    specification_page:
+      description: "規格頁 - 包含品項詳細資訊"
+      identifiers:
+        - contains_text: "100 Seating & Upholstered Furniture"
+        - contains_text: "PROJECT"
+        - contains_text: "ITEM NO.:"
+      has_product_image: false
+
+    attachment_page:
+      description: "附件頁 - 包含產品圖和材質色票"
+      identifiers:
+        - contains_text: "ATTACHMENTS:"
+        - previous_page_type: "specification_page"
+      has_product_image: true
+
+    drawing_page:
+      description: "工程圖頁 - 包含技術圖面"
+      identifiers:
+        - contains_text: "TOP VIEW"
+        - contains_text: "FRONT VIEW"
+        - contains_text: "SIDE VIEW"
+        - contains_text: "SCALE:"
+      has_product_image: false
+
+  # 品項頁面組成模式
+  item_page_pattern:
+    description: "每個品項由 2-4 頁組成"
+    sequence:
+      - specification_page  # 第 1 頁：規格
+      - attachment_page     # 第 2 頁：附件（產品圖在這）
+      - drawing_page        # 第 3-4 頁：工程圖（可選）
+
+# ============================================================
+# 圖片抓取規則
+# ============================================================
+image_extraction:
+  # 產品圖選擇策略
+  product_image:
+    source_page: "attachment_page"
+    selection_strategy: "largest_color_image"
+    min_area_ratio: 0.1  # 至少佔頁面 10%
+    min_area_px: 10000   # 最小面積（像素）
+
+    characteristics:
+      - "彩色照片或渲染圖"
+      - "通常位於頁面上半部"
+      - "顯示完整家具產品"
+
+  # 排除規則
+  exclusions:
+    - type: "logo"
+      description: "公司 Logo"
+      rules:
+        position: "top_10_percent"
+        contains_text: "HABITUS"
+        max_area_px: 5000
+        max_area_ratio: 0.05
+
+    - type: "material_swatch"
+      description: "材質色票"
+      rules:
+        max_width_px: 300
+        max_height_px: 300
+        has_label_below: true
+        label_pattern: "^[A-Z]{2,3}-\\d{3}$"  # DLX-500, WD-003
+
+    - type: "technical_drawing"
+      description: "工程圖/線稿"
+      rules:
+        saturation_below: 0.1  # 黑白或低飽和度
+        contains_text_any:
+          - "VIEW"
+          - "SCALE"
+          - "mm"
+
+    - type: "hardware_detail"
+      description: "五金配件圖"
+      rules:
+        max_area_ratio: 0.05
+        background: "white"
+        has_label_below: true
+
+# ============================================================
+# 欄位提取規則
+# ============================================================
+field_extraction:
+  item_no:
+    location: "specification_page"
+    pattern: "ITEM NO\\.?:\\s*([A-Z0-9\\-\\.]+)"
+    normalization:
+      - uppercase: true
+      - remove_spaces: true
+      - standardize_separators: "-"
+
+  item_name:
+    location: "specification_page"
+    pattern: "ITEM:\\s*(.+?)(?=\\n|LOCATION)"
+
+  description:
+    location: "specification_page"
+    section: "DESCRIPTION"
+    extract_until: "NOTES:"
+
+  dimensions:
+    location: "specification_page"
+    patterns:
+      - "Overall Dimensions?:\\s*(.+?)(?=\\n)"
+      - "([LWDH]\\d+\\s*x\\s*[LWDH]?\\d+\\s*x\\s*[LWDH]?\\d+)"
+    format: "WxDxH mm"
+
+  location_field:
+    location: "specification_page"
+    pattern: "LOCATION:\\s*(.+?)(?=\\n)"
+
+  materials:
+    location: "specification_page"
+    section: "FURNITURE COM:"
+    extract_fields:
+      - pattern: "MFR:\\s*(.+?)(?=\\n)"
+        output: "brand"
+      - pattern: "Pattern Name.*?:\\s*(.+?)(?=\\n)"
+        output: "pattern"
+      - pattern: "Color:\\s*(.+?)(?=\\n)"
+        output: "color"
+      - pattern: "Content:\\s*(.+?)(?=\\n)"
+        output: "content"
+
+# ============================================================
+# 文件角色偵測（用於跨表合併）
+# ============================================================
+role_detection:
+  quantity_summary:
+    filename_keywords:
+      - "qty"
+      - "quantity"
+      - "overall"
+      - "summary"
+      - "index"
+    content_indicators:
+      - "Total Qty"
+      - "Quantity Summary"
+
+  detail_specification:
+    filename_keywords:
+      - "casegoods"
+      - "seating"
+      - "fabric"
+      - "lighting"
+    content_indicators:
+      - "DESCRIPTION"
+      - "FURNITURE COM:"
+
+# ============================================================
+# LLM Prompt 模板
+# ============================================================
+prompts:
+  parse_specification:
+    system: |
+      你是專業的 FF&E (Furniture, Fixtures & Equipment) 文件解析專家。
+      你正在解析 HABITUS Design Group 的家具規格書。
+
+    user_template: |
+      請分析以下 PDF 內容，提取出家具報價單（BOQ）中的所有項目。
+
+      {categories_instruction}
+
+      針對每個項目，請按照以下 JSON 格式提取（對應惠而蒙格式 15 欄）：
+
+      ```json
+      [
+        {{
+          "source_page": 項目所在的頁碼 (1-indexed),
+          "item_no": "項目編號 (B欄: Item no.)",
+          "description": "項目描述 (C欄: Description)",
+          "dimension": "尺寸 WxDxH mm (E欄: Dimension)",
+          "qty": 數量或 null (F欄: Qty),
+          "uom": "單位如 ea, m, set (G欄: UOM)",
+          "unit_cbm": 單位材積或 null (J欄: Unit CBM),
+          "note": "備註或說明 (L欄: Note)",
+          "location": "位置/區域 (M欄: Location)",
+          "materials_specs": "材料/規格說明 (N欄: Materials Used / Specs)",
+          "brand": "品牌或 null (O欄: Brand)"
+        }}
+      ]
+      ```
+
+      欄位說明：
+      - source_page: 項目在 PDF 中的頁碼，必須根據文本中的 "--- Page N ---" 標記來判斷
+      - item_no: 項目編號，如 "DLX-100"、"FUR-001"（注意：如果編號中有 @ 符號，只取 @ 之前的部分作為 item_no）
+      - description: 品名描述，如 "King Bed"、"會議桌"
+      - dimension: 尺寸規格，格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
+      - qty: 數量，數字或 null
+      - uom: 單位，如 "ea"（個）、"m"（公尺）、"set"（組）
+      - unit_cbm: 單位材積（立方公尺），數字或 null
+      - note: 備註說明
+      - location: **重要** 位置/區域提取規則：
+        * 解析順序：先看詳細規格區取得家具資料，再查 Index 找到對應的 Location
+        * 從 Index 中查找此 Item No. 出現的所有 "@XX" 地點
+        * 如果有多個地點，用逗號分隔合併成一欄，如 "King DLX (A/B), End King, Grand King"
+        * 如果沒有找到 @ 符號，location 填 null
+        * 位置名稱簡寫規則：
+          - "King Deluxe Room Type A" + "King Deluxe Room Type B" → "King DLX (A/B)"
+          - "Standard Room Type A" + "Standard Room Type B" → "Standard (A/B)"
+          - "Grand King Room Type A" + "Grand King Room Type B" → "Grand King (A/B)"
+          - "End King" 保持原樣
+        * 面料類 (Fabric/Leather): 從 Item No. 欄位提取 "@XX" 後面的部分
+      - materials_specs: 使用材料/規格，如 "Vinyl: DLX-500 Taupe"
+      - brand: 只填寫明確標示的品牌名稱（如 "Fairmont"、"Herman Miller"）。注意：MFR、材料代碼、規格編號都不是品牌，請留 null
+
+      PDF 內容：
+      {pdf_content}
+
+      請只返回 JSON 數組，不要包含其他文本。如果無法提取有效項目，返回空數組 []。
+
+  parse_quantity_summary:
+    system: |
+      你是一個專業的家具報價單解析助手，專門處理數量總表。
+
+    user_template: |
+      請解析這份「數量總表」PDF，只需要提取以下資訊：
+
+      1. **CODE / Item No. / 項目編號**: 項目的唯一識別碼（例如：DLX-100, STD-200）
+      2. **TOTAL QTY / 總數量**: 該項目的總數量
+
+      **輸出格式**：請以 JSON 陣列格式輸出，每個項目包含：
+      - `item_no`: 項目編號（字串）
+      - `qty`: 總數量（數字）
+      - `page`: 來源頁碼（數字，若無法確定填 null）
+
+      **重要規則**：
+      - 忽略表頭列
+      - 忽略小計、合計、總計等列
+      - 忽略空白列
+      - 數量請處理千分位逗號（例如：1,234 → 1234）
+      - 只輸出 JSON，不要其他說明文字
+
+      **輸出範例**：
+      ```json
+      [
+        {{"item_no": "DLX-100", "qty": 239, "page": 1}},
+        {{"item_no": "DLX-101", "qty": 248, "page": 1}},
+        {{"item_no": "STD-200", "qty": 100, "page": 2}}
+      ]
+      ```
+
+      PDF 內容：
+      {pdf_content}
+
+      請開始解析：
+
+  parse_project_metadata:
+    system: |
+      你是專業的文件解析專家，專門提取專案元資料。
+
+    user_template: |
+      請分析以下 PDF 內容，提取專案名稱。
+
+      請按照以下 JSON 格式返回：
+
+      ```json
+      {{
+        "project_name": "專案名稱"
+      }}
+      ```
+
+      說明：
+      - project_name: 專案名稱，通常在文件標題或 "Project Name:" 後面，例如 "SOLAIRE BAY TOWER"
+
+      如果找不到，請填入 null。
+
+      PDF 內容：
+      {pdf_content}
+
+      請只返回 JSON 對象，不要包含其他文本。
+
+  classify_image:
+    system: |
+      你是圖片分類專家，專門辨識 FF&E 規格書中的圖片類型。
+
+    user_template: |
+      請判斷這張圖片的類型：
+
+      可能的類型：
+      1. product_image - 產品渲染圖或照片
+      2. logo - 公司 Logo
+      3. material_swatch - 材質色票
+      4. technical_drawing - 工程圖/線稿
+      5. hardware_detail - 五金配件圖
+
+      回傳 JSON：{{"type": "...", "confidence": 0.0-1.0, "reason": "..."}}

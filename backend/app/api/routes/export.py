@@ -68,11 +68,13 @@ async def create_quotation(
         for idx, item in enumerate(all_items, 1):
             item.no = idx
 
-        # Create quotation
+        # Create quotation with project metadata from first document
+        first_doc = documents[0] if documents else None
         quotation = Quotation(
             title=request.title or f"RFQ-{Quotation().id[:8].upper()}",
             source_document_ids=request.document_ids,
             items=all_items,
+            project_name=first_doc.project_name if first_doc else None,
         )
 
         # Update statistics

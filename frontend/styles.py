@@ -14,6 +14,21 @@ def apply_poc_styles():
             margin: 0 auto;
         }
 
+        /* Reduce default Streamlit block spacing */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+        }
+
+        /* Reduce spacing between elements */
+        .stMarkdown {
+            margin-bottom: 0 !important;
+        }
+
+        div[data-testid="stVerticalBlock"] > div {
+            gap: 0.5rem !important;
+        }
+
         /* Step indicator colors */
         .step-active {
             color: #2C5F7F;
@@ -67,10 +82,76 @@ def apply_poc_styles():
             margin: 1em 0;
         }
 
-        /* File uploader area */
+        /* File uploader area - Enhanced */
         [data-testid="stFileUploadDropzone"] {
-            border: 2px dashed #2C5F7F;
-            border-radius: 8px;
+            border: 3px dashed #2C5F7F !important;
+            border-radius: 16px !important;
+            background: linear-gradient(135deg, #f8fbfd 0%, #e8f4f8 100%) !important;
+            padding: 3rem 2rem !important;
+            min-height: 200px !important;
+            transition: all 0.3s ease !important;
+        }
+
+        [data-testid="stFileUploadDropzone"]:hover {
+            border-color: #1E3F52 !important;
+            background: linear-gradient(135deg, #e8f4f8 0%, #d0e8f0 100%) !important;
+            transform: scale(1.01);
+            box-shadow: 0 8px 25px rgba(44, 95, 127, 0.15) !important;
+        }
+
+        /* Upload icon and text */
+        [data-testid="stFileUploadDropzone"] svg {
+            width: 48px !important;
+            height: 48px !important;
+            color: #2C5F7F !important;
+        }
+
+        [data-testid="stFileUploadDropzone"] small {
+            font-size: 0.95rem !important;
+            color: #666 !important;
+        }
+
+        [data-testid="stFileUploadDropzone"] span {
+            font-size: 1.1rem !important;
+            font-weight: 500 !important;
+            color: #2C5F7F !important;
+        }
+
+        /* Browse button inside dropzone */
+        [data-testid="stFileUploadDropzone"] button {
+            background-color: #2C5F7F !important;
+            color: white !important;
+            border: none !important;
+            padding: 0.6rem 1.5rem !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease !important;
+        }
+
+        [data-testid="stFileUploadDropzone"] button:hover {
+            background-color: #1E3F52 !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 12px rgba(44, 95, 127, 0.3) !important;
+        }
+
+        /* Uploaded file list */
+        [data-testid="stFileUploadDropzone"] [data-testid="stMarkdownContainer"] {
+            background: white !important;
+            border-radius: 8px !important;
+            padding: 0.5rem !important;
+            margin-top: 0.5rem !important;
+        }
+
+        /* Hide extra spacing above file uploader */
+        [data-testid="stFileUploader"] {
+            margin-top: -1rem !important;
+        }
+
+        /* Style the actual dropzone to be more compact */
+        [data-testid="stFileUploaderDropzone"] {
+            border: 2px dashed #2C5F7F !important;
+            border-radius: 12px !important;
+            background: #fafcfd !important;
         }
 
         /* Primary buttons */

@@ -1,9 +1,10 @@
 """Excel generation service for Fairmont format quotations.
 
-完全比照惠而蒙格式 Excel 範本 15 欄:
-A: NO., B: Item no., C: Description, D: Photo, E: Dimension WxDxH (mm),
-F: Qty, G: UOM, H: Unit Rate (留空), I: Amount (留空), J: Unit CBM,
-K: Total CBM (公式), L: Note, M: Location, N: Materials Used / Specs, O: Brand
+完全比照惠而蒙格式 Excel 範本:
+- 公司表頭 (rows 1-15)
+- 欄位標題 (row 16)
+- 資料列 (row 17+)
+- 條款 footer
 """
 
 import logging
@@ -11,41 +12,34 @@ import base64
 from pathlib import Path
 from typing import List, Optional
 from io import BytesIO
+from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import TwoCellAnchor, AnchorMarker
+from openpyxl.utils.units import pixels_to_EMU
 from openpyxl.utils import get_column_letter
 import uuid
 
 from ..models import Quotation, BOQItem
 from ..utils import ErrorCode, raise_error, FileManager
 from ..config import settings
+from .dimension_formatter import get_dimension_formatter_service
+from .quotation_format import (
+    FAIRMONT_COMPANY,
+    FAIRMONT_TERMS,
+    FAIRMONT_TERMS_HEADER,
+    COLUMNS,
+    HEADER_START_ROW,
+    DATA_HEADER_ROW,
+    DATA_START_ROW,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ExcelGeneratorService:
-    """Service for generating Excel quotations in Fairmont format (15 columns)."""
-
-    # Fairmont format column headers (15 columns per template)
-    # Format: (header_text, field_name, column_width)
-    COLUMNS = [
-        ("NO.", "no", 5),                          # A: 序號
-        ("Item no.", "item_no", 13),               # B: 項目編號
-        ("Description", "description", 20),        # C: 描述
-        ("Photo", "photo", 15),                    # D: 圖片 (Base64)
-        ("Dimension\nWxDxH (mm)", "dimension", 18),  # E: 尺寸
-        ("Qty", "qty", 8),                         # F: 數量
-        ("UOM", "uom", 6),                         # G: 單位
-        ("Unit Rate\n(USD)", "unit_rate", 12),    # H: 單價 (留空)
-        ("Amount\n(USD)", "amount", 12),          # I: 金額 (留空)
-        ("Unit\nCBM", "unit_cbm", 8),             # J: 單位材積
-        ("Total\nCBM", "total_cbm", 8),           # K: 總材積 (公式)
-        ("Note", "note", 20),                      # L: 備註
-        ("Location", "location", 15),              # M: 位置
-        ("Materials Used / Specs", "materials_specs", 20),  # N: 材料規格
-        ("Brand", "brand", 12),                    # O: 品牌
-    ]
+    """Service for generating Excel quotations in Fairmont format."""
 
     def __init__(self):
         """Initialize Excel generator service."""
@@ -80,11 +74,18 @@ class ExcelGeneratorService:
             ws = wb.active
             ws.title = "報價單"
 
-            # Set column widths and create headers
-            self._create_header_row(ws)
+            # 1. Write company header (rows 1-15)
+            self._write_company_header(ws, quotation)
 
-            # Add items
+            # 2. Write column headers (row 16)
+            self._write_column_headers(ws)
+
+            # 3. Add items (row 17+)
             self._add_items_to_sheet(ws, quotation.items, include_photos, photo_height_cm)
+
+            # 4. Write terms footer
+            footer_start_row = DATA_START_ROW + len(quotation.items) + 2
+            self._write_terms_footer(ws, footer_start_row)
 
             # Generate filename and save
             filename = f"quotation_{quotation.id}_{uuid.uuid4().hex[:8]}.xlsx"
@@ -102,8 +103,102 @@ class ExcelGeneratorService:
                 f"Excel 生成失敗：{str(e)}",
             )
 
-    def _create_header_row(self, ws) -> None:
-        """Create header row with formatting."""
+    def _write_company_header(self, ws, quotation: Quotation) -> None:
+        """Write Fairmont company header section (rows 1-15)."""
+        # Format date
+        quote_date = quotation.created_at.strftime("%m/%d/%Y")
+
+        # Title font
+        title_font = Font(bold=True, size=18)
+
+        # Add Fairmont logo at top-left (A1)
+        self._embed_logo(ws)
+
+        # Row 1: QUOTE title (right side)
+        ws.cell(row=1, column=10, value="QUOTE").font = title_font
+
+        # Row 5: Company address + Project Name
+        ws.cell(row=5, column=2, value=FAIRMONT_COMPANY["address"])
+        ws.cell(row=5, column=8, value="Project Name：")
+        ws.cell(row=5, column=10, value=quotation.project_name or "")
+
+        # Row 6: Phone
+        ws.cell(row=6, column=2, value=f"p {FAIRMONT_COMPANY['phone']}")
+
+        # Row 7: Fax + RFQ #
+        ws.cell(row=7, column=2, value=f"f  {FAIRMONT_COMPANY['fax']}")
+        ws.cell(row=7, column=8, value="RFQ #：")
+        ws.cell(row=7, column=10, value=quotation.title or "")
+
+        # Row 8: Website + Date
+        ws.cell(row=8, column=2, value=FAIRMONT_COMPANY["website"])
+        ws.cell(row=8, column=8, value="Date：")
+        ws.cell(row=8, column=10, value=quote_date)
+
+        # Row 9: Revision
+        ws.cell(row=9, column=8, value="Revision：")
+        ws.cell(row=9, column=10, value="1")
+
+        # Row 11-14: Customer info + Production details
+        ws.cell(row=11, column=2, value="Customer")
+        ws.cell(row=11, column=8, value="Production Type：")
+        ws.cell(row=11, column=10, value="BULK")
+
+        ws.cell(row=12, column=2, value="Company：")
+        ws.cell(row=12, column=8, value="Shipping Term：")
+        ws.cell(row=12, column=10, value="FOB")
+
+        ws.cell(row=13, column=2, value="ATTN：")
+        ws.cell(row=13, column=8, value="Port of Loading：")
+        ws.cell(row=13, column=10, value="Nantong China")
+
+        ws.cell(row=14, column=2, value="Email：")
+
+    def _embed_logo(self, ws) -> None:
+        """Embed Fairmont logo at top-left corner (A1)."""
+        # Logo file path
+        logo_path = Path(__file__).parent.parent.parent.parent / "docs" / "fairmont-logo.jpg"
+
+        if not logo_path.exists():
+            logger.warning(f"Logo file not found: {logo_path}")
+            return
+
+        try:
+            # Load logo image
+            img = XLImage(str(logo_path))
+
+            # Set logo size to match example template
+            # Logo spans rows 1-4, columns A-B (header area)
+            LOGO_WIDTH = 280
+            LOGO_HEIGHT = 75
+
+            img.width = LOGO_WIDTH
+            img.height = LOGO_HEIGHT
+
+            # Position at A1 with small offset
+            from_marker = AnchorMarker(
+                col=0,  # Column A (0-indexed)
+                colOff=pixels_to_EMU(5),
+                row=0,  # Row 1 (0-indexed)
+                rowOff=pixels_to_EMU(5),
+            )
+            to_marker = AnchorMarker(
+                col=3,  # Span to column D (0-indexed, so 3 = D)
+                colOff=pixels_to_EMU(50),
+                row=3,  # Span to row 4
+                rowOff=pixels_to_EMU(10),
+            )
+
+            img.anchor = TwoCellAnchor(editAs='oneCell', _from=from_marker, to=to_marker)
+            ws.add_image(img)
+
+            logger.debug("Fairmont logo embedded at A1")
+
+        except Exception as e:
+            logger.warning(f"Failed to embed logo: {e}")
+
+    def _write_column_headers(self, ws) -> None:
+        """Create column header row (row 16) with formatting."""
         # Header styling
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -115,17 +210,28 @@ class ExcelGeneratorService:
             bottom=Side(style="thin"),
         )
 
-        # Add headers
-        for col_num, (header_text, _, width) in enumerate(self.COLUMNS, 1):
-            cell = ws.cell(row=1, column=col_num)
+        # Add headers at row 16
+        for col_num, (header_text, _, excel_width, _) in enumerate(COLUMNS, 1):
+            cell = ws.cell(row=DATA_HEADER_ROW, column=col_num)
             cell.value = header_text
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = header_alignment
             cell.border = thin_border
-            ws.column_dimensions[get_column_letter(col_num)].width = width
+            ws.column_dimensions[get_column_letter(col_num)].width = excel_width
 
-        ws.row_dimensions[1].height = 25
+        ws.row_dimensions[DATA_HEADER_ROW].height = 25
+
+    def _write_terms_footer(self, ws, start_row: int) -> None:
+        """Write terms and remarks footer section."""
+        # Terms header
+        ws.cell(row=start_row, column=1, value=FAIRMONT_TERMS_HEADER)
+        ws.cell(row=start_row, column=1).font = Font(bold=True)
+
+        # Add numbered terms
+        for i, term in enumerate(FAIRMONT_TERMS, 1):
+            ws.cell(row=start_row + 1 + i, column=1, value=str(i))
+            ws.cell(row=start_row + 1 + i, column=2, value=term)
 
     def _add_items_to_sheet(
         self,
@@ -134,7 +240,7 @@ class ExcelGeneratorService:
         include_photos: bool = True,
         photo_height_cm: float = 3.0,
     ) -> None:
-        """Add items to worksheet (15 columns per Fairmont template)."""
+        """Add items to worksheet starting at row 17."""
         thin_border = Border(
             left=Side(style="thin"),
             right=Side(style="thin"),
@@ -146,10 +252,14 @@ class ExcelGeneratorService:
         right_alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
 
         # Calculate photo size in pixels (assuming 96 DPI)
-        # 1 cm = ~37.8 pixels at 96 DPI
         photo_height_px = int(photo_height_cm * 37.8)
 
-        for row_num, item in enumerate(items, 2):  # Start from row 2 (after header)
+        # Initialize dimension formatter
+        dim_formatter = get_dimension_formatter_service()
+
+        for idx, item in enumerate(items):
+            row_num = DATA_START_ROW + idx  # Start from row 17
+
             # A: NO.
             cell = ws.cell(row=row_num, column=1)
             cell.value = item.no
@@ -177,9 +287,9 @@ class ExcelGeneratorService:
                 cell.alignment = center_alignment
                 cell.border = thin_border
 
-            # E: Dimension WxDxH (mm)
+            # E: Dimension WxDxH (mm) - 使用 dimension_formatter 格式化
             cell = ws.cell(row=row_num, column=5)
-            cell.value = item.dimension or ""
+            cell.value = dim_formatter.format_dimension(item)
             cell.alignment = left_alignment
             cell.border = thin_border
 
@@ -197,13 +307,13 @@ class ExcelGeneratorService:
             cell.alignment = center_alignment
             cell.border = thin_border
 
-            # H: Unit Rate (USD) - 留空，使用者填寫
+            # H: Unit Rate (USD) - 留空
             cell = ws.cell(row=row_num, column=8)
             cell.value = ""
             cell.alignment = right_alignment
             cell.border = thin_border
 
-            # I: Amount (USD) - 留空，使用者填寫
+            # I: Amount (USD) - 留空
             cell = ws.cell(row=row_num, column=9)
             cell.value = ""
             cell.alignment = right_alignment
@@ -243,15 +353,17 @@ class ExcelGeneratorService:
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # O: Brand
+            # O: Brand - 只有面料才顯示品牌
             cell = ws.cell(row=row_num, column=15)
-            cell.value = item.brand or ""
+            if dim_formatter.is_fabric(item):
+                cell.value = item.brand or ""
+            else:
+                cell.value = ""
             cell.alignment = left_alignment
             cell.border = thin_border
 
-            # Set fixed row height for uniform layout (85px to fit 80px images + margin)
-            FIXED_ROW_HEIGHT = 85
-            ws.row_dimensions[row_num].height = FIXED_ROW_HEIGHT
+            # Set fixed row height (85px for images)
+            ws.row_dimensions[row_num].height = 85
 
     def _embed_base64_photo(
         self,
@@ -261,10 +373,16 @@ class ExcelGeneratorService:
         photo_base64: str,
         photo_height_px: int,
     ) -> None:
-        """Embed Base64 encoded photo in worksheet with fixed dimensions."""
-        # Fixed dimensions for uniform Excel layout
-        FIXED_WIDTH = 100
-        FIXED_HEIGHT = 80
+        """Embed Base64 encoded photo in worksheet with TwoCellAnchor for precise centering."""
+        # Image and cell dimensions
+        IMG_WIDTH = 90
+        IMG_HEIGHT = 65
+        ROW_HEIGHT_PX = 85
+        COL_WIDTH_PX = 110  # Photo column width (~15 excel units ≈ 110px)
+
+        # Calculate centering offsets
+        h_offset = (COL_WIDTH_PX - IMG_WIDTH) // 2
+        v_offset = (ROW_HEIGHT_PX - IMG_HEIGHT) // 2
 
         try:
             # Remove data URI prefix if present
@@ -277,142 +395,54 @@ class ExcelGeneratorService:
 
             # Create Excel image object from bytes
             img = XLImage(image_stream)
+            img.width = IMG_WIDTH
+            img.height = IMG_HEIGHT
 
-            # Set fixed width and height (may stretch/compress image)
-            img.width = FIXED_WIDTH
-            img.height = FIXED_HEIGHT
+            # Create TwoCellAnchor for precise positioning
+            # AnchorMarker uses 0-indexed row/col
+            from_marker = AnchorMarker(
+                col=col_num - 1,
+                colOff=pixels_to_EMU(h_offset),
+                row=row_num - 1,
+                rowOff=pixels_to_EMU(v_offset),
+            )
+            to_marker = AnchorMarker(
+                col=col_num - 1,
+                colOff=pixels_to_EMU(h_offset + IMG_WIDTH),
+                row=row_num - 1,
+                rowOff=pixels_to_EMU(v_offset + IMG_HEIGHT),
+            )
 
-            # Get column letter and position
-            col_letter = get_column_letter(col_num)
-            cell_ref = f"{col_letter}{row_num}"
+            # Apply TwoCellAnchor - image moves/resizes with cells
+            img.anchor = TwoCellAnchor(editAs='oneCell', _from=from_marker, to=to_marker)
 
-            # Add image to worksheet
-            ws.add_image(img, cell_ref)
+            # Add image to worksheet (no cell reference needed with TwoCellAnchor)
+            ws.add_image(img)
 
-            logger.debug(f"Embedded Base64 photo in cell {cell_ref} ({FIXED_WIDTH}x{FIXED_HEIGHT}px)")
+            logger.debug(f"Embedded centered photo at row {row_num}, col {col_num}")
 
         except Exception as e:
             logger.warning(f"Failed to embed Base64 photo: {e}")
             cell = ws.cell(row=row_num, column=col_num)
             cell.value = "[圖片嵌入失敗]"
 
-    def _embed_photo(
-        self,
-        ws,
-        row_num: int,
-        col_num: int,
-        photo_path: str,
-        photo_height_px: int,
-    ) -> None:
-        """Embed photo from file path in worksheet (legacy support)."""
-        try:
-            path = Path(photo_path)
-            if not path.exists():
-                logger.warning(f"Photo not found: {photo_path}")
-                cell = ws.cell(row=row_num, column=col_num)
-                cell.value = "[圖片不存在]"
-                return
-
-            # Create Excel image object
-            img = XLImage(str(path))
-
-            # Set height (width will be proportional)
-            img.height = photo_height_px
-            # Calculate width based on aspect ratio
-            from PIL import Image as PILImage
-            pil_img = PILImage.open(path)
-            aspect_ratio = pil_img.width / pil_img.height
-            img.width = int(photo_height_px * aspect_ratio)
-
-            # Get column letter and position
-            col_letter = get_column_letter(col_num)
-            cell_ref = f"{col_letter}{row_num}"
-
-            # Add image to worksheet
-            ws.add_image(img, cell_ref)
-
-            logger.info(f"Embedded photo in cell {cell_ref}")
-
-        except Exception as e:
-            logger.warning(f"Failed to embed photo: {e}")
-            cell = ws.cell(row=row_num, column=col_num)
-            cell.value = "[圖片嵌入失敗]"
-
-    def update_quotation_excel(
-        self,
-        file_path: str,
-        quotation: Quotation,
-    ) -> None:
-        """
-        Update existing Excel file with new items.
-
-        Args:
-            file_path: Path to Excel file
-            quotation: Updated quotation with items
-
-        Raises:
-            APIError: If update fails
-        """
-        try:
-            from openpyxl import load_workbook
-
-            wb = load_workbook(file_path)
-            ws = wb.active
-
-            # Clear existing items (keep header)
-            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-                for cell in row:
-                    cell.value = None
-
-            # Add updated items
-            self._add_items_to_sheet(ws, quotation.items)
-
-            wb.save(file_path)
-            logger.info(f"Excel file updated: {file_path}")
-
-        except Exception as e:
-            logger.error(f"Excel update failed: {e}")
-            raise_error(
-                ErrorCode.EXPORT_FAILED,
-                "Excel 更新失敗",
-            )
-
     def validate_excel_file(self, file_path: str) -> bool:
-        """
-        Validate generated Excel file (15 columns per Fairmont format).
-
-        Args:
-            file_path: Path to Excel file
-
-        Returns:
-            True if valid
-
-        Raises:
-            APIError: If invalid
-        """
+        """Validate generated Excel file."""
         try:
             from openpyxl import load_workbook
 
             wb = load_workbook(file_path)
             ws = wb.active
 
-            # Check headers (15 columns)
-            expected_headers = [col[0] for col in self.COLUMNS]
-            actual_headers = [cell.value for cell in ws[1]]
+            # Check headers at row 16
+            expected_headers = [col[0] for col in COLUMNS]
+            actual_headers = [ws.cell(row=DATA_HEADER_ROW, column=i).value for i in range(1, 16)]
 
-            # Compare first 15 columns
-            if actual_headers[:15] != expected_headers:
-                logger.warning(
-                    f"Header mismatch. Expected: {expected_headers}, "
-                    f"Actual: {actual_headers[:15]}"
-                )
-                raise ValueError("Headers do not match Fairmont format (15 columns)")
+            if actual_headers != expected_headers:
+                logger.warning(f"Header mismatch at row {DATA_HEADER_ROW}")
+                raise ValueError("Headers do not match Fairmont format")
 
-            # Check at least one data row
-            if ws.max_row < 2:
-                raise ValueError("No data rows in worksheet")
-
-            logger.info(f"Excel file validated: {file_path} (15 columns)")
+            logger.info(f"Excel file validated: {file_path}")
             return True
 
         except Exception as e:

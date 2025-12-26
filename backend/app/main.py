@@ -127,13 +127,14 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 # Register API routers
-from .api.routes import health, upload, parse, export, task
+from .api.routes import health, upload, parse, export, task, merge
 
 app.include_router(health.router)
 app.include_router(upload.router)
 app.include_router(parse.router)
 app.include_router(export.router)
 app.include_router(task.router)
+app.include_router(merge.router)  # 跨表合併 API (2025-12-23 新增)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from ...api.dependencies import get_store_dependency, get_file_manager, get_file
 from ...services.pdf_parser import get_pdf_parser
 from ...services.image_extractor import get_image_extractor
 from ...services.image_matcher_deterministic import get_deterministic_image_matcher
+from ...services.document_role_detector import get_document_role_detector_service
 from ...store import InMemoryStore
 from ...utils import log_error, FileManager, FileValidator
 
@@ -49,10 +50,16 @@ async def upload_files(
         documents = []
         parse_tasks = []
 
-        for filename, content in validated_files:
+        # Get document role detector service
+        role_detector = get_document_role_detector_service()
+
+        for upload_order, (filename, content) in enumerate(validated_files):
             try:
                 # Save file
                 file_path = file_manager.save_upload_file(content, filename)
+
+                # Detect document role from filename
+                document_role, role_detected_by = role_detector.detect_role(filename)
 
                 # Create document record
                 doc = SourceDocument(
@@ -61,6 +68,9 @@ async def upload_files(
                     file_size=len(content),
                     document_type="unknown",  # Will be detected during parsing
                     parse_status="pending",
+                    document_role=document_role,
+                    upload_order=upload_order,
+                    role_detected_by=role_detected_by,
                 )
 
                 # Store document
@@ -73,7 +83,33 @@ async def upload_files(
                     doc.total_pages = page_count
                     store.update_document(doc)
 
-                    # 自動建立並啟動解析任務
+                    # 數量總表跳過 BOQ 解析（會在合併時由 quantity_parser 處理）
+                    if document_role == "quantity_summary":
+                        doc.parse_status = "completed"
+                        doc.parse_message = "數量總表，跳過 BOQ 解析"
+                        store.update_document(doc)
+                        logger.info(f"Skipping BOQ parsing for quantity summary: {filename}")
+
+                        # 建立一個已完成的假任務供前端追蹤
+                        task = ProcessingTask(
+                            task_type="parse_pdf",
+                            status="completed",
+                            message="數量總表已就緒",
+                            document_id=doc.id,
+                            progress=100,
+                        )
+                        store.add_task(task)
+
+                        parse_tasks.append({
+                            "document_id": doc.id,
+                            "task_id": task.task_id,
+                            "status": task.status,
+                        })
+                        # 數量總表也要加入 documents 列表！
+                        documents.append(doc.model_dump())
+                        continue
+
+                    # 自動建立並啟動解析任務（僅限明細規格表）
                     task = ProcessingTask(
                         task_type="parse_pdf",
                         status="pending",
@@ -144,12 +180,16 @@ async def _parse_pdf_background(
 
         # Parse PDF with Gemini
         parser = get_pdf_parser()
-        boq_items, image_paths = await parser.parse_boq_with_gemini(
+        boq_items, image_paths, project_metadata = await parser.parse_boq_with_gemini(
             file_path=document.file_path,
             document_id=document_id,
             extract_images=extract_images,
             target_categories=target_categories,
         )
+
+        # Store project metadata in document
+        if project_metadata:
+            document.project_name = project_metadata.get("project_name")
 
         task.update_progress(70, "正在提取圖片...")
 

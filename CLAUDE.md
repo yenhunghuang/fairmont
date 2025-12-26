@@ -48,7 +48,9 @@ streamlit run app.py
 
 ### 環境設定
 
-複製 `.env.example` 為 `.env`，設定 `GEMINI_API_KEY`。
+複製 `.env.example` 為 `.env`，設定必要環境變數：
+- `GEMINI_API_KEY`: Google Gemini AI API 金鑰（必要）
+- `GEMINI_MODEL`: Gemini 模型（預設 `gemini-3-flash-preview`）
 
 ### 非協商性標準（來自 constitution.md）
 
@@ -91,6 +93,7 @@ backend/app/
 │   ├── upload.py                   # POST /documents, GET /documents/{id}
 │   ├── parse.py                    # POST /documents/{id}/parsing
 │   ├── export.py                   # POST /quotations, GET /quotations/{id}/excel
+│   ├── merge.py                    # POST /quotations/merge, GET /quotations/{id}/merge-report
 │   ├── task.py                     # GET /tasks/{id}
 │   └── health.py                   # GET /health
 └── utils/                           # 錯誤處理、檔案管理、驗證
@@ -119,10 +122,11 @@ frontend/
 ## 技術限制
 
 - **無 Redis/資料庫**: 檔案存於檔案系統，狀態存於記憶體（1 小時 TTL 快取）
-- **Gemini AI**: 需設定 `GEMINI_API_KEY`，僅用於 PDF 解析（使用 `gemini-1.5-flash` 模型）
+- **Gemini AI**: 需設定 `GEMINI_API_KEY`，僅用於 PDF 解析（預設 `gemini-3-flash-preview` 模型）
 - **檔案限制**: 單檔最大 50MB，每次上傳最多 5 個檔案
 - **價格欄位**: Unit Rate (H欄)、Amount (I欄) 留空由使用者填寫
 - **圖片匹配**: 僅使用確定性演算法，不使用 Vision API
+- **跨表合併**: 每次最多 1 個數量總表，多明細表依上傳順序合併
 
 ## 惠而蒙 Excel 格式（共 15 欄）
 
