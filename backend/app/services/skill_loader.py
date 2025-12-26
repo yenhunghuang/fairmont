@@ -74,6 +74,7 @@ class VendorInfo(BaseModel):
 
     name: str = Field(..., description="供應商名稱")
     identifier: str = Field(..., description="供應商識別碼")
+    version: str = Field("1.0.0", description="配置版本")
 
 
 class VendorSkill(BaseModel):
@@ -85,6 +86,11 @@ class VendorSkill(BaseModel):
     field_extraction: dict[str, Any] = Field(default_factory=dict)
     role_detection: RoleDetectionConfig = Field(default_factory=RoleDetectionConfig)
     prompts: PromptsConfig = Field(default_factory=PromptsConfig)
+
+    @property
+    def version(self) -> str:
+        """取得配置版本（便捷屬性）."""
+        return self.vendor.version
 
 
 # ============================================================

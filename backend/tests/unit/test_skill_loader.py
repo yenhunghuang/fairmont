@@ -35,6 +35,7 @@ class TestSkillLoaderService:
             "vendor": {
                 "name": "Test Vendor",
                 "identifier": "test",
+                "version": "2.0.0",
             },
             "image_extraction": {
                 "product_image": {
@@ -82,6 +83,35 @@ class TestSkillLoaderService:
 
         assert skill.vendor.name == "Test Vendor"
         assert skill.vendor.identifier == "test"
+
+    def test_version_property(self, loader_with_sample: SkillLoaderService):
+        """測試 version 便捷屬性."""
+        skill = loader_with_sample.load_vendor("test")
+
+        # version 可透過便捷屬性存取
+        assert skill.version == "2.0.0"
+        # 也可透過 vendor.version 存取
+        assert skill.vendor.version == "2.0.0"
+
+    def test_version_default_value(self, temp_skills_dir: Path):
+        """測試 version 預設值."""
+        # 建立沒有 version 的配置
+        vendor_path = temp_skills_dir / "vendors" / "no_version.yaml"
+        config = {
+            "vendor": {
+                "name": "No Version Vendor",
+                "identifier": "no_version",
+                # 沒有 version 欄位
+            },
+        }
+        with open(vendor_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=temp_skills_dir, cache_enabled=False)
+        skill = loader.load_vendor("no_version")
+
+        # 預設值應該是 "1.0.0"
+        assert skill.version == "1.0.0"
 
     def test_load_vendor_not_found(self, temp_skills_dir: Path):
         """找不到配置檔時拋出例外."""

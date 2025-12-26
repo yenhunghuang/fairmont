@@ -191,6 +191,22 @@ class PDFParserService:
                 return template
         return DEFAULT_PROJECT_METADATA_PROMPT
 
+    def _get_boq_system_prompt(self) -> Optional[str]:
+        """Get BOQ extraction system prompt (from Skill or None)."""
+        if self._skill is not None and self._prompts_loaded:
+            system_prompt = self._skill.prompts.parse_specification.system
+            if system_prompt and system_prompt.strip():
+                return system_prompt.strip()
+        return None
+
+    def _get_metadata_system_prompt(self) -> Optional[str]:
+        """Get metadata extraction system prompt (from Skill or None)."""
+        if self._skill is not None and self._prompts_loaded:
+            system_prompt = self._skill.prompts.parse_project_metadata.system
+            if system_prompt and system_prompt.strip():
+                return system_prompt.strip()
+        return None
+
     def validate_pdf(self, file_path: str) -> tuple[int, bool]:
         """
         Validate PDF file.
@@ -255,6 +271,7 @@ class PDFParserService:
         prompt: str,
         document_id: str,
         operation: str = "parse",
+        system_prompt: Optional[str] = None,
     ) -> Any:
         """
         Call Gemini API with timeout, retry logic, and observability tracking.
@@ -263,6 +280,7 @@ class PDFParserService:
             prompt: The prompt to send
             document_id: Document ID for logging
             operation: Operation name for logging
+            system_prompt: Optional system instruction for the model
 
         Returns:
             Gemini API response
@@ -274,6 +292,19 @@ class PDFParserService:
         timeout_seconds = settings.gemini_timeout_seconds
         last_error = None
         observability = get_observability()
+
+        # Use system prompt if provided (creates a new model instance with system instruction)
+        model_to_use = self.model
+        if system_prompt and self.genai:
+            try:
+                model_to_use = self.genai.GenerativeModel(
+                    settings.gemini_model,
+                    system_instruction=system_prompt,
+                )
+                logger.debug(f"Using system prompt for {operation}")
+            except Exception as e:
+                logger.warning(f"Failed to create model with system instruction: {e}, using default model")
+                model_to_use = self.model
 
         # Prepare trace metadata
         skill_version = None
@@ -301,7 +332,7 @@ class PDFParserService:
 
                 # Use asyncio.wait_for to enforce timeout
                 response = await asyncio.wait_for(
-                    asyncio.to_thread(self.model.generate_content, prompt),
+                    asyncio.to_thread(model_to_use.generate_content, prompt),
                     timeout=timeout_seconds,
                 )
 
@@ -423,8 +454,11 @@ class PDFParserService:
                 target_categories=target_categories,
             )
 
-            # Call Gemini API with retry logic
-            response = await self._call_gemini_with_retry(prompt, document_id, "BOQ extraction")
+            # Call Gemini API with retry logic (using system prompt if available)
+            system_prompt = self._get_boq_system_prompt()
+            response = await self._call_gemini_with_retry(
+                prompt, document_id, "BOQ extraction", system_prompt=system_prompt
+            )
 
             # Parse response
             boq_items = self._parse_gemini_response(response, document_id)
