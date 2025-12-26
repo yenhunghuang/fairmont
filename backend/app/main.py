@@ -11,6 +11,7 @@ from .config import settings
 from .store import get_store
 from .utils import APIError
 from .models import ErrorResponse
+from .services.observability import get_observability
 
 
 # Configure logging
@@ -54,6 +55,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"Temp directory: {settings.temp_dir}")
     logger.info(f"Store stats: {store.get_stats()}")
 
+    # Initialize observability
+    observability = get_observability()
+    if observability.is_enabled:
+        logger.info("LangFuse observability enabled")
+    else:
+        logger.info("LangFuse observability disabled")
+
     # Schedule cleanup task (every 24 hours)
     cleanup_task = None
     try:
@@ -70,6 +78,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Application shutting down...")
+
+    # Flush and shutdown LangFuse to ensure all events are sent
+    observability.shutdown()
+
     if cleanup_task:
         cleanup_task.cancel()
     logger.info("Application stopped")
