@@ -98,22 +98,7 @@ def show_upload_page():
 
     show_step_indicator()
 
-    # File uploader section - compact but prominent
-    st.markdown(
-        """
-        <div style="background: linear-gradient(135deg, #f0f7fa 0%, #e3f0f5 100%);
-                    border: 3px dashed #2C5F7F; border-radius: 16px;
-                    padding: 1.2rem; margin: 0.8rem 0; text-align: center;">
-            <span style="font-size: 2rem;">📁</span>
-            <span style="color: #2C5F7F; font-size: 1.4rem; font-weight: bold; margin-left: 0.5rem;">上傳 PDF 檔案</span>
-            <p style="color: #666; font-size: 0.95rem; margin: 0.5rem 0 0 0;">
-                支援拖放上傳，可一次選擇多個檔案 &nbsp;|&nbsp; 📌 最多 5 個，每個最大 50MB
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+    # File uploader section - unified dropzone with integrated header
     uploaded_files = st.file_uploader(
         "選擇 PDF 檔案",
         type=["pdf"],
@@ -124,36 +109,31 @@ def show_upload_page():
     )
 
     if uploaded_files:
-        st.markdown("---")
-        # File list with better styling
-        st.markdown(
-            f"""
-            <div style="background: #e8f5e9; border-radius: 12px; padding: 1rem; margin: 1rem 0;">
-                <p style="color: #2e7d32; font-weight: 600; margin: 0; font-size: 1.1rem;">
-                    ✅ 已選擇 {len(uploaded_files)} 個檔案
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        # Compact file selection display with inline button
+        file_names = ", ".join([f.name for f in uploaded_files])
+        total_size = sum(f.size for f in uploaded_files) / (1024 * 1024)
 
-        # Display file list in columns for better layout
-        for file in uploaded_files:
-            file_size_mb = file.size / (1024 * 1024)
+        col1, col2 = st.columns([3, 2])
+        with col1:
             st.markdown(
                 f"""
-                <div style="background: #f5f5f5; border-radius: 8px; padding: 0.75rem 1rem;
-                            margin: 0.5rem 0; display: flex; align-items: center;
-                            border-left: 4px solid #2C5F7F;">
-                    <span style="font-size: 1.2rem; margin-right: 0.75rem;">📄</span>
-                    <span style="flex: 1; font-weight: 500;">{file.name}</span>
-                    <span style="color: #666; font-size: 0.9rem;">{file_size_mb:.2f} MB</span>
+                <div style="background: #e8f5e9; border-radius: 8px; padding: 0.6rem 1rem; margin-top: 0.5rem;">
+                    <span style="color: #2e7d32; font-weight: 600;">✅ {len(uploaded_files)} 個檔案</span>
+                    <span style="color: #666; font-size: 0.85rem; margin-left: 0.5rem;">({total_size:.1f} MB)</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+        with col2:
+            upload_clicked = st.button("🚀 上傳並開始解析", type="primary", use_container_width=True)
 
-        if st.button("🚀 上傳並開始解析", type="primary", use_container_width=True):
+        # Expandable file details (collapsed by default)
+        with st.expander(f"📋 檔案詳情", expanded=False):
+            for file in uploaded_files:
+                file_size_mb = file.size / (1024 * 1024)
+                st.markdown(f"• **{file.name}** ({file_size_mb:.2f} MB)")
+
+        if upload_clicked:
             with st.spinner("正在上傳..."):
                 try:
                     client = get_api_client()

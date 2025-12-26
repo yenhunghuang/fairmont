@@ -82,76 +82,102 @@ def apply_poc_styles():
             margin: 1em 0;
         }
 
-        /* File uploader area - Enhanced */
-        [data-testid="stFileUploadDropzone"] {
-            border: 3px dashed #2C5F7F !important;
-            border-radius: 16px !important;
-            background: linear-gradient(135deg, #f8fbfd 0%, #e8f4f8 100%) !important;
-            padding: 3rem 2rem !important;
-            min-height: 200px !important;
-            transition: all 0.3s ease !important;
+        /* File uploader area - Unified dropzone with header */
+        [data-testid="stFileUploader"] {
+            margin-top: 0.5rem !important;
         }
 
-        [data-testid="stFileUploadDropzone"]:hover {
-            border-color: #1E3F52 !important;
+        [data-testid="stFileUploader"] > section {
+            flex-direction: column !important;
+            display: flex !important;
+            border: 3px dashed #2C5F7F !important;
+            border-radius: 16px !important;
+            background: linear-gradient(135deg, #f0f7fa 0%, #e8f4f8 100%) !important;
+            overflow: visible !important;
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+        }
+
+        [data-testid="stFileUploader"] > section::before {
+            content: "📁 上傳 PDF 檔案";
+            display: block !important;
+            width: 100% !important;
+            order: -2 !important;
+            text-align: center;
+            color: #2C5F7F;
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 0.8rem 1rem 0.2rem 1rem;
+            background: transparent;
+            box-sizing: border-box;
+        }
+
+        [data-testid="stFileUploader"] > section::after {
+            content: "拖放上傳 | 最多 5 個檔案，每個 50MB";
+            display: block !important;
+            width: 100% !important;
+            order: -1 !important;
+            text-align: center;
+            color: #666;
+            font-size: 0.8rem;
+            padding: 0.1rem 1rem 0.4rem 1rem;
+            background: transparent;
+            box-sizing: border-box;
+        }
+
+        /* Dropzone instructions area - more compact */
+        [data-testid="stFileUploaderDropzoneInstructions"] {
+            padding: 0.5rem 1.5rem !important;
+            justify-content: center !important;
+            align-items: center !important;
+            gap: 0.8rem !important;
+        }
+
+        /* Smaller upload icon */
+        [data-testid="stFileUploaderDropzoneInstructions"] svg {
+            width: 32px !important;
+            height: 32px !important;
+        }
+
+        [data-testid="stFileUploader"] > section:hover {
             background: linear-gradient(135deg, #e8f4f8 0%, #d0e8f0 100%) !important;
-            transform: scale(1.01);
             box-shadow: 0 8px 25px rgba(44, 95, 127, 0.15) !important;
         }
 
-        /* Upload icon and text */
-        [data-testid="stFileUploadDropzone"] svg {
-            width: 48px !important;
-            height: 48px !important;
+        /* Dropzone text - compact */
+        [data-testid="stFileUploaderDropzoneInstructions"] span {
+            font-size: 0.9rem !important;
             color: #2C5F7F !important;
         }
 
-        [data-testid="stFileUploadDropzone"] small {
-            font-size: 0.95rem !important;
-            color: #666 !important;
+        [data-testid="stFileUploaderDropzoneInstructions"] small {
+            font-size: 0.75rem !important;
+            color: #888 !important;
         }
 
-        [data-testid="stFileUploadDropzone"] span {
-            font-size: 1.1rem !important;
-            font-weight: 500 !important;
-            color: #2C5F7F !important;
-        }
-
-        /* Browse button inside dropzone */
-        [data-testid="stFileUploadDropzone"] button {
+        /* Browse button inside dropzone - compact */
+        [data-testid="stFileUploader"] > section > span > button {
             background-color: #2C5F7F !important;
             color: white !important;
             border: none !important;
-            padding: 0.6rem 1.5rem !important;
-            border-radius: 8px !important;
+            padding: 0.4rem 1.2rem !important;
+            border-radius: 6px !important;
             font-weight: 600 !important;
+            font-size: 0.85rem !important;
             transition: all 0.2s ease !important;
+            margin: 0.3rem 0 0.6rem 0 !important;
         }
 
-        [data-testid="stFileUploadDropzone"] button:hover {
+        [data-testid="stFileUploader"] > section > span > button:hover {
             background-color: #1E3F52 !important;
             transform: translateY(-2px) !important;
             box-shadow: 0 4px 12px rgba(44, 95, 127, 0.3) !important;
         }
 
-        /* Uploaded file list */
-        [data-testid="stFileUploadDropzone"] [data-testid="stMarkdownContainer"] {
-            background: white !important;
-            border-radius: 8px !important;
-            padding: 0.5rem !important;
-            margin-top: 0.5rem !important;
-        }
-
-        /* Hide extra spacing above file uploader */
-        [data-testid="stFileUploader"] {
-            margin-top: -1rem !important;
-        }
-
-        /* Style the actual dropzone to be more compact */
-        [data-testid="stFileUploaderDropzone"] {
-            border: 2px dashed #2C5F7F !important;
-            border-radius: 12px !important;
-            background: #fafcfd !important;
+        /* Hide native Streamlit file list (we use our own expander) */
+        [data-testid="stFileUploaderFile"] {
+            display: none !important;
         }
 
         /* Primary buttons */
