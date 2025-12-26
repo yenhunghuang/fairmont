@@ -23,19 +23,29 @@ DEFAULT_BOQ_PROMPT_TEMPLATE = """
 
 {categories_instruction}
 
+**重要解析原則**：
+- 每個規格頁只提取「主要項目」，忽略附屬的面料、配件、五金等
+- 主要項目判斷依據：
+  * 有獨立的 ITEM NO. 編號
+  * 在規格頁標題或 ITEM 欄位中明確標示
+  * 不是作為主項目的材質說明（如 "FURNITURE COM:" 區塊內的面料）
+- 如果一個規格頁同時出現家具和其使用的面料，只提取家具本身
+- 面料類項目只有在「獨立的面料規格頁」才需要提取（如 Fabric & Leather 文件）
+
 針對每個項目，請按照以下 JSON 格式提取（對應惠而蒙格式 15 欄）：
 
 ```json
 [
   {{
     "source_page": 項目所在的頁碼 (1-indexed),
+    "category": "項目類別 (furniture 或 fabric)",
     "item_no": "項目編號 (B欄: Item no.)",
     "description": "項目描述 (C欄: Description)",
-    "dimension": "尺寸 WxDxH mm (E欄: Dimension)",
+    "dimension": "尺寸 WxDxH mm (E欄: Dimension) - 僅家具類需填寫",
     "qty": 數量或 null (F欄: Qty),
-    "uom": "單位如 ea, m, set (G欄: UOM)",
+    "uom": "單位 (G欄: UOM) - 使用標準值如 ea, m, set",
     "unit_cbm": 單位材積或 null (J欄: Unit CBM),
-    "note": "備註或說明 (L欄: Note)",
+    "note": null,
     "location": "位置/區域 (M欄: Location)",
     "materials_specs": "材料/規格說明 (N欄: Materials Used / Specs)",
     "brand": "品牌或 null (O欄: Brand)"
@@ -45,13 +55,26 @@ DEFAULT_BOQ_PROMPT_TEMPLATE = """
 
 欄位說明：
 - source_page: 項目在 PDF 中的頁碼，必須根據文本中的 "--- Page N ---" 標記來判斷
+- category: 項目類別，根據以下規則判斷：
+  * "furniture" - 家具類：Casegoods、Seating、Lighting、桌椅櫃等實體家具
+  * "fabric" - 面料類：Fabric、Leather、Vinyl、布料皮革等軟裝材料
+  * 判斷依據：檔案名稱、ITEM 欄位內容（如 "Fabric @..." 開頭則為 fabric）
 - item_no: 項目編號，如 "DLX-100"、"FUR-001"（注意：如果編號中有 @ 符號，只取 @ 之前的部分作為 item_no）
-- description: 品名描述，如 "King Bed"、"會議桌"
-- dimension: 尺寸規格，格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
+- description: 品名描述（**依 category 不同格式**）
+  * **furniture 類別**：直接使用品名，如 "King Bed"、"Executive Chair"
+  * **fabric 類別**：格式為 "<材料類型> to <關聯家具編號>"
+    - 從 ITEM 欄位的 "@" 後面提取關聯的家具編號
+    - 範例："Vinyl to DLX-100"、"Fabric to DLX-200, DLX-201"
+- dimension: 尺寸/規格（**重要：依 category 不同處理**）
+  * **furniture 類別**：格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
+  * **fabric 類別**：格式為 "<Vendor>-<Pattern>-<Color>-<Width> <plain/pattern>"
+    - 範例："Morbern Europe-Prodigy PRO 682-Lt Neutral-137cmW plain"
 - qty: 數量，數字或 null
-- uom: 單位，如 "ea"（個）、"m"（公尺）、"set"（組）
+- uom: 單位（使用標準值：ea, set, m, roll, L, kg, sqm）
+  * 家具類 → 通常是 "ea" 或 "set"
+  * 面料類 → 可能是 "m" 或 "ea"
 - unit_cbm: 單位材積（立方公尺），數字或 null
-- note: 備註說明
+- note: 暫不處理，固定填 null
 - location: **重要** 位置/區域提取規則：
   * 解析順序：先看詳細規格區取得家具資料，再查 Index 找到對應的 Location
   * 從 Index 中查找此 Item No. 出現的所有 "@XX" 地點
@@ -78,9 +101,9 @@ DEFAULT_PROJECT_METADATA_PROMPT = """
 請按照以下 JSON 格式返回：
 
 ```json
-{
+{{
   "project_name": "專案名稱"
-}
+}}
 ```
 
 說明：
@@ -462,16 +485,25 @@ class PDFParserService:
                     # This enables the deterministic image matching algorithm
                     source_page = self._parse_source_page(item_data.get("source_page"))
 
+                    # Parse and validate category
+                    raw_category = item_data.get("category")
+                    category = None
+                    if raw_category and isinstance(raw_category, str):
+                        cat_lower = raw_category.lower().strip()
+                        if cat_lower in ("furniture", "fabric"):
+                            category = cat_lower
+
                     boq_item = BOQItem(
                         no=idx,
                         item_no=item_data.get("item_no", f"ITEM-{idx}"),
                         description=item_data.get("description", ""),
+                        category=category,
                         dimension=item_data.get("dimension"),
                         qty=self._parse_qty(item_data.get("qty")),
-                        uom=item_data.get("uom"),
+                        uom=item_data.get("uom"),  # LLM 自行判斷，不做硬編碼標準化
                         unit_cbm=self._parse_float(item_data.get("unit_cbm")),
                         note=item_data.get("note"),
-                        location=item_data.get("location"),
+                        location=self._normalize_location(item_data.get("location")),
                         materials_specs=item_data.get("materials_specs"),
                         brand=item_data.get("brand"),
                         source_document_id=document_id,
@@ -519,6 +551,27 @@ class PDFParserService:
             except ValueError:
                 return None
         return None
+
+    @staticmethod
+    def _normalize_location(location: Optional[str]) -> Optional[str]:
+        """
+        Normalize location field for fabric/leather items.
+
+        Converts "and" to "," to properly separate multiple furniture items.
+
+        Examples:
+            "DLX-100 King Bed and DLX-103 Queen Bed"
+            -> "DLX-100 King Bed, DLX-103 Queen Bed"
+        """
+        if not location:
+            return location
+
+        # Replace " and " with ", " for proper separation
+        # Use word boundary to avoid replacing "and" within words like "Grand"
+        import re
+        normalized = re.sub(r'\s+and\s+', ', ', location)
+
+        return normalized.strip()
 
     @staticmethod
     def _parse_source_page(page_value: Any) -> Optional[int]:
