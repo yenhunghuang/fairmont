@@ -6,20 +6,21 @@ F: Qty, G: UOM, H: Unit Rate (留空), I: Amount (留空), J: Unit CBM,
 K: Total CBM (公式), L: Note, M: Location, N: Materials Used / Specs, O: Brand
 """
 
-import logging
 import base64
-from pathlib import Path
-from typing import List, Optional
-from io import BytesIO
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.drawing.image import Image as XLImage
-from openpyxl.utils import get_column_letter
+import logging
 import uuid
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
 
-from ..models import Quotation, BOQItem
-from ..utils import ErrorCode, raise_error, FileManager
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 from ..config import settings
+from ..models import BOQItem, Quotation
+from ..utils import ErrorCode, FileManager, raise_error
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ class ExcelGeneratorService:
     def _add_items_to_sheet(
         self,
         ws,
-        items: List[BOQItem],
+        items: list[BOQItem],
         include_photos: bool = True,
         photo_height_cm: float = 3.0,
     ) -> None:
@@ -423,13 +424,7 @@ class ExcelGeneratorService:
             )
 
 
-# Global generator instance
-_generator_instance: ExcelGeneratorService = None
-
-
+@lru_cache(maxsize=1)
 def get_excel_generator() -> ExcelGeneratorService:
-    """Get or create Excel generator instance."""
-    global _generator_instance
-    if _generator_instance is None:
-        _generator_instance = ExcelGeneratorService()
-    return _generator_instance
+    """Get or create Excel generator instance (thread-safe via lru_cache)."""
+    return ExcelGeneratorService()

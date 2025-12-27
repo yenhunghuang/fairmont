@@ -1,21 +1,28 @@
 """Upload API routes with auto-parsing."""
 
+import asyncio
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Depends, Query, HTTPException
-from fastapi.responses import FileResponse
-from datetime import datetime
-import uuid
 
-from ...models import SourceDocument, ProcessingTask, APIResponse
-from ...api.dependencies import get_store_dependency, get_file_manager, get_file_validator, validate_pdf_files
-from ...services.pdf_parser import get_pdf_parser
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
+
+from ...api.dependencies import (
+    get_file_manager,
+    get_file_validator,
+    get_store_dependency,
+    validate_pdf_files,
+)
+from ...models import APIResponse, ProcessingTask, SourceDocument
 from ...services.image_extractor import get_image_extractor
 from ...services.image_matcher_deterministic import get_deterministic_image_matcher
+from ...services.pdf_parser import get_pdf_parser
 from ...store import InMemoryStore
-from ...utils import log_error, FileManager, FileValidator
+from ...utils import FileManager, FileValidator, log_error
 
 logger = logging.getLogger(__name__)
+
+# Gemini API 並發控制：限制同時解析的 PDF 數量，避免 API 限流
+_parsing_semaphore = asyncio.Semaphore(2)
 
 router = APIRouter(prefix="/api/v1", tags=["Upload"])
 
@@ -28,7 +35,7 @@ router = APIRouter(prefix="/api/v1", tags=["Upload"])
 )
 async def upload_files(
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     extract_images: bool = Query(True, description="是否提取圖片"),
     store: InMemoryStore = Depends(get_store_dependency),
     file_manager: FileManager = Depends(get_file_manager),
@@ -128,9 +135,21 @@ async def _parse_pdf_background(
     task_id: str,
     store: InMemoryStore,
     extract_images: bool = True,
-    target_categories: Optional[List[str]] = None,
+    target_categories: list[str] | None = None,
 ) -> None:
     """背景任務：PDF 解析."""
+    async with _parsing_semaphore:
+        await _do_parse_pdf(document_id, task_id, store, extract_images, target_categories)
+
+
+async def _do_parse_pdf(
+    document_id: str,
+    task_id: str,
+    store: InMemoryStore,
+    extract_images: bool = True,
+    target_categories: list[str] | None = None,
+) -> None:
+    """實際執行 PDF 解析邏輯."""
     try:
         # Get task and update status
         task = store.get_task(task_id)

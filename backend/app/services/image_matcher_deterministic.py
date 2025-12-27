@@ -13,7 +13,7 @@ Algorithm:
 
 import logging
 from collections import defaultdict
-from typing import Optional
+from functools import lru_cache
 
 from ..models import BOQItem
 
@@ -140,13 +140,7 @@ class DeterministicImageMatcher:
         return mapping
 
 
-# Global instance
-_matcher_instance: Optional[DeterministicImageMatcher] = None
-
-
+@lru_cache(maxsize=1)
 def get_deterministic_image_matcher() -> DeterministicImageMatcher:
-    """Get or create deterministic image matcher instance."""
-    global _matcher_instance
-    if _matcher_instance is None:
-        _matcher_instance = DeterministicImageMatcher()
-    return _matcher_instance
+    """Get or create deterministic image matcher instance (thread-safe via lru_cache)."""
+    return DeterministicImageMatcher()

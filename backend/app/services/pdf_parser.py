@@ -1,15 +1,16 @@
 """PDF parser service with Gemini AI integration."""
 
-import logging
-import fitz  # PyMuPDF
 import asyncio
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 import json
+import logging
+from functools import lru_cache
+from typing import Any
 
-from ..models import BOQItem, SourceDocument
-from ..utils import ErrorCode, raise_error
+import fitz  # PyMuPDF
+
 from ..config import settings
+from ..models import BOQItem
+from ..utils import ErrorCode, raise_error
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class PDFParserService:
             logger.error(f"PDF validation failed: {e}")
             raise_error(ErrorCode.PDF_PARSING_FAILED, f"PDF 驗證失敗：{str(e)}")
 
-    def extract_text_from_pdf(self, file_path: str, max_pages: Optional[int] = None) -> str:
+    def extract_text_from_pdf(self, file_path: str, max_pages: int | None = None) -> str:
         """
         Extract text from PDF.
 
@@ -99,8 +100,8 @@ class PDFParserService:
         file_path: str,
         document_id: str,
         extract_images: bool = True,
-        target_categories: Optional[List[str]] = None,
-    ) -> tuple[List[BOQItem], List[str]]:
+        target_categories: list[str] | None = None,
+    ) -> tuple[list[BOQItem], list[str]]:
         """
         Parse BOQ from PDF using Gemini AI.
 
@@ -172,7 +173,7 @@ class PDFParserService:
     def _create_boq_extraction_prompt(
         self,
         pdf_text: str,
-        target_categories: Optional[List[str]] = None,
+        target_categories: list[str] | None = None,
     ) -> str:
         """Create prompt for Gemini to extract BOQ items (15 columns per Excel template)."""
         categories_str = (
@@ -226,7 +227,7 @@ PDF 內容：
 """
         return prompt
 
-    def _parse_gemini_response(self, response: Any, document_id: str) -> List[BOQItem]:
+    def _parse_gemini_response(self, response: Any, document_id: str) -> list[BOQItem]:
         """Parse Gemini response and create BOQItem objects (15 columns)."""
         try:
             response_text = response.text
@@ -277,7 +278,7 @@ PDF 內容：
             return []
 
     @staticmethod
-    def _parse_float(value: Any) -> Optional[float]:
+    def _parse_float(value: Any) -> float | None:
         """Parse float value from various formats."""
         if value is None:
             return None
@@ -293,7 +294,7 @@ PDF 內容：
         return None
 
     @staticmethod
-    def _parse_qty(qty_value: Any) -> Optional[float]:
+    def _parse_qty(qty_value: Any) -> float | None:
         """Parse quantity value from various formats."""
         if qty_value is None:
             return None
@@ -307,7 +308,7 @@ PDF 內容：
         return None
 
     @staticmethod
-    def _parse_source_page(page_value: Any) -> Optional[int]:
+    def _parse_source_page(page_value: Any) -> int | None:
         """
         Parse source page number from Gemini response.
 
@@ -336,7 +337,7 @@ PDF 內容：
         self,
         file_path: str,
         document_id: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Extract images asynchronously."""
         return await asyncio.to_thread(
             self.extract_images,
@@ -348,7 +349,7 @@ PDF 內容：
         self,
         file_path: str,
         document_id: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Extract images from PDF."""
         from .image_extractor import ImageExtractorService
 
@@ -356,13 +357,7 @@ PDF 內容：
         return extractor.extract_images(file_path, document_id)
 
 
-# Global parser instance
-_parser_instance: Optional[PDFParserService] = None
-
-
+@lru_cache(maxsize=1)
 def get_pdf_parser() -> PDFParserService:
-    """Get or create PDF parser instance."""
-    global _parser_instance
-    if _parser_instance is None:
-        _parser_instance = PDFParserService()
-    return _parser_instance
+    """Get or create PDF parser instance (thread-safe via lru_cache)."""
+    return PDFParserService()
