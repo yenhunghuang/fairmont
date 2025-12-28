@@ -50,7 +50,7 @@ streamlit run app.py
 
 複製 `.env.example` 為 `.env`，設定必要環境變數：
 - `GEMINI_API_KEY`: Google Gemini AI API 金鑰（必要）
-- `GEMINI_MODEL`: Gemini 模型（預設 `gemini-3-flash-preview`）
+- `GEMINI_MODEL`: Gemini 模型（預設 `gemini-2.0-flash-lite`）
 - `LANGFUSE_ENABLED`: 啟用 LangFuse 追蹤（預設 `false`）
 - `LANGFUSE_PUBLIC_KEY`: LangFuse 公開金鑰（啟用追蹤時必要）
 - `LANGFUSE_SECRET_KEY`: LangFuse 密鑰（啟用追蹤時必要）
@@ -125,12 +125,20 @@ frontend/
 - **演算法**: 頁面偏移匹配（第 N 頁圖片匹配第 N-1 頁項目）
 - **Logo 過濾**: 自動過濾小圖片（< 10,000 px²）避免匹配到 Logo/頁首
 - **效能**: 每份 PDF < 100ms（相比 Vision API 需 10-15 秒）
-- **測試**: `backend/tests/unit/test_image_matcher_deterministic.py`（18 個測試，100% 覆蓋率）
+
+### Skills 系統（供應商解析配置）
+
+系統使用 YAML 配置檔定義供應商特定的解析規則：
+
+- **位置**: `skills/vendors/` 目錄
+- **載入器**: `backend/app/services/skill_loader.py`
+- **用途**: 定義文件類型識別、欄位提取規則、LLM Prompt 模板
+- **目前支援**: `habitus.yaml`（HABITUS Design Group）
 
 ## 技術限制
 
 - **無 Redis/資料庫**: 檔案存於檔案系統，狀態存於記憶體（1 小時 TTL 快取）
-- **Gemini AI**: 需設定 `GEMINI_API_KEY`，僅用於 PDF 解析（預設 `gemini-3-flash-preview` 模型）
+- **Gemini AI**: 需設定 `GEMINI_API_KEY`，僅用於 PDF 解析（預設 `gemini-2.0-flash-lite` 模型）
 - **檔案限制**: 單檔最大 50MB，每次上傳最多 5 個檔案
 - **價格欄位**: Unit Rate (H欄)、Amount (I欄) 留空由使用者填寫
 - **圖片匹配**: 僅使用確定性演算法，不使用 Vision API
@@ -157,36 +165,7 @@ frontend/
 
 ### 啟用方式
 
-1. 在 LangFuse 建立專案，取得 API 金鑰
-2. 設定環境變數：
-   ```bash
-   LANGFUSE_ENABLED=true
-   LANGFUSE_PUBLIC_KEY=pk-xxx
-   LANGFUSE_SECRET_KEY=sk-xxx
-   ```
-3. 重啟服務即可開始追蹤
-
-### 使用方式
-
-```python
-from app.services.observability import get_observability, TraceMetadata
-
-observability = get_observability()
-
-# 追蹤 Gemini 呼叫
-usage = observability.track_gemini_call(
-    name="operation_name",
-    prompt=prompt,
-    response=gemini_response,
-    metadata=TraceMetadata(
-        vendor_id="habitus",
-        document_id="doc-123",
-        operation="boq_extraction",
-    ),
-)
-
-print(f"Total tokens: {usage.total_tokens}")
-```
+設定環境變數 `LANGFUSE_ENABLED=true` 及對應的 API 金鑰，重啟服務即可。詳見環境設定章節。
 
 ## 惠而蒙 Excel 格式（共 15 欄）
 
@@ -265,4 +244,6 @@ print(f"Total tokens: {usage.total_tokens}")
 | `/api/v1/quotations` | POST | 從文件建立報價單 |
 | `/api/v1/quotations/{id}/items` | GET | 取得報價單項目 |
 | `/api/v1/quotations/{id}/excel` | GET | 下載 Excel（產出中回傳 202） |
+| `/api/v1/quotations/merge` | POST | 跨表合併（明細表+數量總表） |
+| `/api/v1/quotations/{id}/merge-report` | GET | 取得合併報告 |
 | `/api/v1/tasks/{id}` | GET | 查詢背景任務狀態 |

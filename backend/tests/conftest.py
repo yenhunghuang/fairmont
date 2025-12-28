@@ -112,9 +112,8 @@ def sample_quotation_data():
     }
 
 
-@pytest.mark.asyncio
 @pytest.fixture
-async def sample_processing_task():
+def sample_processing_task():
     """Sample processing task for testing."""
     from app.models import ProcessingTask
 
