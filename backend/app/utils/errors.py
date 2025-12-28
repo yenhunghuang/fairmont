@@ -46,6 +46,13 @@ class ErrorCode(str, Enum):
     EXPORT_FAILED = "EXPORT_FAILED"
     MERGE_FAILED = "MERGE_FAILED"
 
+    # Merge-specific errors (跨表合併)
+    MERGE_MULTIPLE_QUANTITY_SUMMARY = "MERGE_001"
+    MERGE_NO_DETAIL_SPEC = "MERGE_002"
+    MERGE_ITEM_NOT_FOUND = "MERGE_003"
+    MERGE_NO_DOCUMENTS = "MERGE_004"
+    MERGE_TOTAL_PAGES_EXCEEDED = "MERGE_005"
+
     # Server errors
     INTERNAL_ERROR = "INTERNAL_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
@@ -85,7 +92,13 @@ ERROR_MESSAGES: Dict[ErrorCode, str] = {
     # Processing errors
     ErrorCode.PROCESSING_FAILED: "處理失敗",
     ErrorCode.EXPORT_FAILED: "匯出失敗",
-    ErrorCode.MERGE_FAILED: "合併失敗",
+    ErrorCode.MERGE_FAILED: "合併處理失敗",
+    # Merge-specific errors (跨表合併)
+    ErrorCode.MERGE_MULTIPLE_QUANTITY_SUMMARY: "上傳多份數量總表，請僅保留一份",
+    ErrorCode.MERGE_NO_DETAIL_SPEC: "未上傳明細規格表，無法進行合併",
+    ErrorCode.MERGE_ITEM_NOT_FOUND: "Item No. 在明細規格表中未找到",
+    ErrorCode.MERGE_NO_DOCUMENTS: "未提供任何文件進行合併",
+    ErrorCode.MERGE_TOTAL_PAGES_EXCEEDED: "總頁數超過限制（最大 200 頁）",
 
     # Server errors
     ErrorCode.INTERNAL_ERROR: "伺服器內部錯誤",

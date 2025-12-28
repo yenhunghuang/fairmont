@@ -107,12 +107,16 @@ async def _parse_pdf_background(
 
         # Parse PDF with Gemini
         parser = get_pdf_parser()
-        boq_items, image_paths = await parser.parse_boq_with_gemini(
+        boq_items, image_paths, project_metadata = await parser.parse_boq_with_gemini(
             file_path=document.file_path,
             document_id=document_id,
             extract_images=extract_images,
             target_categories=target_categories,
         )
+
+        # Store project metadata in document
+        if project_metadata:
+            document.project_name = project_metadata.get("project_name")
 
         task.update_progress(70, "正在提取圖片...")
 

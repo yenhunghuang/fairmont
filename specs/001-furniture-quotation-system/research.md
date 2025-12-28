@@ -3,7 +3,7 @@
 **Feature Branch**: `001-furniture-quotation-system`
 **Date**: 2025-12-19
 **Status**: Completed
-**Updated**: 2025-12-19 - Excel 輸出格式更新（完全比照範本 15 欄）
+**Updated**: 2025-12-23 - 新增跨表合併功能研究（R-009 ~ R-015）
 
 ---
 
@@ -870,3 +870,239 @@ pytest-playwright>=0.4.0
 | Excel 產出 | openpyxl | 圖片嵌入支援、格式控制 |
 | 前後端通訊 | REST + 輪詢 | 簡單、Streamlit 友好 |
 | 平面圖分析 | Gemini 視覺分析 | 多模態 AI、無需訓練 |
+
+---
+
+## 9. 跨表合併功能研究（2025-12-23 新增）
+
+### R-009: PDF 角色自動識別
+
+**問題**: 如何自動區分「數量總表」與「明細規格表」？
+
+**決策**: 檔名關鍵字匹配（大小寫不敏感）
+
+**實作**:
+```python
+QUANTITY_SUMMARY_KEYWORDS = ["qty", "overall", "summary", "數量", "總量"]
+
+def detect_document_role(filename: str) -> DocumentRole:
+    """根據檔名偵測 PDF 角色."""
+    filename_lower = filename.lower()
+    for keyword in QUANTITY_SUMMARY_KEYWORDS:
+        if keyword.lower() in filename_lower:
+            return "quantity_summary"
+    return "detail_spec"
+```
+
+**理由**:
+- 簡單快速，無需解析 PDF 內容
+- 可預測，使用者可透過檔名控制角色
+- 低成本，無額外 AI 呼叫
+
+**替代方案（拒絕）**:
+| 方案 | 原因 |
+|------|------|
+| 內容分析 | 需額外 AI 呼叫，增加成本與延遲 |
+| 使用者手動選擇 | 增加操作複雜度，作為覆寫機制保留 |
+
+---
+
+### R-010: Item No. 標準化演算法
+
+**問題**: 如何處理 Item No. 格式差異？
+
+**決策**: 正規表達式清理 + 大小寫統一
+
+**實作**:
+```python
+import re
+
+def normalize_item_no(item_no: str) -> str:
+    """標準化 Item No. 以便跨 PDF 匹配."""
+    normalized = item_no.strip()
+    normalized = normalized.upper()
+    normalized = re.sub(r'\s+', '', normalized)
+    normalized = re.sub(r'[.\-]+', '-', normalized)
+    return normalized
+```
+
+**測試案例**:
+| 輸入 | 輸出 |
+|------|------|
+| `"DLX-100"` | `"DLX-100"` |
+| `"DLX 100"` | `"DLX-100"` |
+| `"dlx.100"` | `"DLX-100"` |
+| `"DLX-100.1"` | `"DLX-100-1"` |
+
+---
+
+### R-011: 數量總表專用解析
+
+**問題**: 數量總表格式簡單，如何高效解析？
+
+**決策**: 專用 Gemini prompt + 結構化 JSON 輸出
+
+**Prompt**:
+```python
+QUANTITY_SUMMARY_PROMPT = """
+請從以下 PDF 內容中提取所有項目編號與數量。
+
+規則：
+1. 僅提取 CODE/Item No. 與 TOTAL QTY 兩個欄位
+2. 忽略表頭、小計、合計列
+3. 數量使用浮點數
+
+輸出格式（JSON 陣列）：
+[{"item_no": "DLX-100", "qty": 239.0}]
+"""
+```
+
+**輸出模型**:
+```python
+class QuantitySummaryItem(BaseModel):
+    item_no: str
+    qty: Optional[float] = None
+```
+
+---
+
+### R-012: 多來源欄位合併策略
+
+**問題**: 多份明細規格表包含相同 Item No. 時，如何合併欄位？
+
+**決策**: 上傳順序優先 + 非空覆蓋 + 圖片特例
+
+**規則**:
+1. 先上傳的 PDF 非空欄位優先
+2. 若先上傳為空、後上傳有值，則取後上傳值
+3. 圖片：選擇解析度較高者
+4. 數量：數量總表無條件覆蓋
+
+**實作**:
+```python
+MERGEABLE_FIELDS = [
+    "description", "dimension", "uom", "unit_cbm",
+    "note", "location", "materials_specs", "brand"
+]
+
+def merge_boq_items(items: List[BOQItem], qty_from_summary: Optional[float]) -> BOQItem:
+    merged = items[0].model_copy(deep=True)
+    for item in items[1:]:
+        for field in MERGEABLE_FIELDS:
+            if getattr(merged, field) is None and getattr(item, field) is not None:
+                setattr(merged, field, getattr(item, field))
+    merged.photo_base64 = select_highest_resolution_image(items)
+    if qty_from_summary is not None:
+        merged.qty = qty_from_summary
+        merged.qty_verified = True
+    return merged
+```
+
+---
+
+### R-013: 圖片解析度選擇
+
+**問題**: 多個 PDF 包含相同 Item No. 的圖片時，如何選擇最佳圖片？
+
+**決策**: 像素總數選擇法
+
+**實作**:
+```python
+from PIL import Image
+from io import BytesIO
+import base64
+
+def get_image_resolution(base64_string: str) -> int:
+    try:
+        if "," in base64_string:
+            base64_string = base64_string.split(",")[1]
+        image_data = base64.b64decode(base64_string)
+        image = Image.open(BytesIO(image_data))
+        return image.width * image.height
+    except Exception:
+        return 0
+
+def select_highest_resolution_image(items: List[BOQItem]) -> Optional[str]:
+    best_image, best_resolution = None, 0
+    for item in items:
+        if item.photo_base64:
+            resolution = get_image_resolution(item.photo_base64)
+            if resolution > best_resolution:
+                best_resolution = resolution
+                best_image = item.photo_base64
+    return best_image
+```
+
+---
+
+### R-014: 合併報告結構
+
+**決策**: 結構化 JSON 報告
+
+```python
+class FormatWarning(BaseModel):
+    original: str
+    normalized: str
+    source_file: str
+
+class MergeReport(BaseModel):
+    id: str
+    quotation_id: str
+    created_at: datetime
+
+    # 統計
+    total_items: int
+    matched_items: int
+    match_rate: float
+
+    # 未匹配項目
+    unmatched_in_quantity_summary: List[str] = []
+    unmatched_in_detail_spec: List[str] = []
+    qty_not_verified: List[str] = []
+
+    # 警告
+    format_warnings: List[FormatWarning] = []
+
+    # 來源檔案
+    quantity_summary_file: Optional[str] = None
+    detail_spec_files: List[str] = []
+```
+
+---
+
+### R-015: 現有服務整合策略
+
+**決策**: 最大化重用，最小化修改
+
+**重用清單**:
+| 服務 | 用途 | 修改需求 |
+|------|------|---------|
+| `PDFParserService` | 明細規格表解析 | 無 |
+| `ImageExtractorService` | 圖片提取 | 無 |
+| `ImageMatcherDeterministic` | 圖片匹配 | 無 |
+| `ExcelGeneratorService` | Excel 產生 | 無 |
+| `InMemoryStore` | 資料儲存 | 新增 merge_report_cache |
+| `ProcessingTask` | 背景任務 | 新增 task_type="merge" |
+
+**新增服務**:
+| 服務 | 職責 |
+|------|------|
+| `DocumentRoleDetector` | 檔名 → 角色判定 |
+| `ItemNormalizer` | Item No. 標準化 |
+| `QuantityParser` | 數量總表解析 |
+| `MergeService` | 跨表合併邏輯 |
+| `ImageSelector` | 圖片解析度選擇 |
+
+---
+
+## 跨表合併研究總結
+
+| 研究項目 | 狀態 | 決策 |
+|---------|------|------|
+| R-009 PDF 角色識別 | ✅ | 檔名關鍵字匹配 |
+| R-010 Item No. 標準化 | ✅ | 正規表達式 + 大寫統一 |
+| R-011 數量總表解析 | ✅ | 專用 Gemini prompt |
+| R-012 欄位合併策略 | ✅ | 上傳順序優先 + 非空覆蓋 |
+| R-013 圖片選擇 | ✅ | 像素總數最大者 |
+| R-014 合併報告 | ✅ | 結構化 JSON 模型 |
+| R-015 服務整合 | ✅ | 最大化重用現有服務 |

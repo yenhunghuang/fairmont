@@ -1,7 +1,14 @@
 """Unit tests for DeterministicImageMatcher."""
 
+import tempfile
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
 import pytest
+import yaml
+
 from app.services.image_matcher_deterministic import (
+    DEFAULT_EXCLUSION_RULES,
     DeterministicImageMatcher,
     MIN_PRODUCT_IMAGE_AREA,
     get_deterministic_image_matcher,
@@ -406,3 +413,167 @@ class TestAreaThreshold:
         # Should select index 1 (only product-sized image)
         assert len(mapping) == 1
         assert 1 in mapping
+
+
+class TestExclusionRules:
+    """Test exclusion rules functionality."""
+
+    def test_default_exclusion_rules_exist(self):
+        """Default exclusion rules are defined."""
+        assert len(DEFAULT_EXCLUSION_RULES) > 0
+        assert DEFAULT_EXCLUSION_RULES[0]["type"] == "logo"
+
+    def test_should_exclude_small_logo(self):
+        """Small images are excluded by logo rule."""
+        matcher = DeterministicImageMatcher()
+
+        # Small image (logo)
+        img = {"width": 50, "height": 50, "page": 1, "index": 0}  # 2500 px
+        excluded, reason = matcher._should_exclude_image(img)
+        assert excluded is True
+        assert "logo" in reason.lower()
+
+    def test_should_not_exclude_large_image(self):
+        """Large images are not excluded."""
+        matcher = DeterministicImageMatcher()
+
+        # Large image (product)
+        img = {"width": 300, "height": 400, "page": 1, "index": 0}  # 120000 px
+        excluded, reason = matcher._should_exclude_image(img)
+        assert excluded is False
+        assert reason == ""
+
+    def test_custom_exclusion_rules_from_skill(self):
+        """Custom exclusion rules from Skill config are applied."""
+        # Mock Skill loader
+        mock_skill = MagicMock()
+        mock_skill.image_extraction.product_image.min_area_px = 20000
+        mock_skill.image_extraction.exclusions = [
+            MagicMock(type="material_swatch", description="Swatch", rules={"max_width_px": 200, "max_height_px": 200}),
+        ]
+
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = mock_skill
+            matcher = DeterministicImageMatcher(vendor_id="test_vendor")
+
+            # Check min_area_px was loaded
+            assert matcher._min_area_px == 20000
+
+            # Check exclusion rules were loaded
+            rules = matcher._get_exclusion_rules()
+            assert len(rules) == 1
+            assert rules[0]["type"] == "material_swatch"
+
+    def test_fallback_when_skill_not_found(self):
+        """Fallback to defaults when Skill config not found."""
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = None
+            matcher = DeterministicImageMatcher(vendor_id="nonexistent")
+
+            # Should use default values
+            assert matcher._min_area_px == MIN_PRODUCT_IMAGE_AREA
+            assert matcher._get_exclusion_rules() == DEFAULT_EXCLUSION_RULES
+
+    def test_max_width_height_exclusion(self):
+        """Exclusion by max_width_px and max_height_px works."""
+        matcher = DeterministicImageMatcher()
+        matcher._exclusion_rules = [
+            {"type": "swatch", "description": "Material swatch", "rules": {"max_width_px": 100, "max_height_px": 100}},
+        ]
+
+        # Image within max dimensions (should be excluded)
+        small_img = {"width": 80, "height": 90, "page": 1, "index": 0}
+        excluded, reason = matcher._should_exclude_image(small_img)
+        assert excluded is True
+        assert "swatch" in reason.lower()
+
+        # Image exceeds max dimensions (should not be excluded)
+        large_img = {"width": 150, "height": 100, "page": 1, "index": 1}
+        excluded, reason = matcher._should_exclude_image(large_img)
+        assert excluded is False
+
+    def test_max_area_ratio_exclusion(self):
+        """Exclusion by max_area_ratio works."""
+        matcher = DeterministicImageMatcher()
+        matcher._exclusion_rules = [
+            {"type": "icon", "description": "Small icon", "rules": {"max_area_ratio": 0.05}},
+        ]
+
+        page_area = 1000000  # Total page area
+
+        # Small ratio (should be excluded: 10000/1000000 = 0.01 < 0.05)
+        small_img = {"width": 100, "height": 100, "page": 1, "index": 0}  # 10000 px
+        excluded, reason = matcher._should_exclude_image(small_img, page_area=page_area)
+        assert excluded is True
+        assert "icon" in reason.lower()
+
+        # Large ratio (should not be excluded: 100000/1000000 = 0.1 > 0.05)
+        large_img = {"width": 500, "height": 200, "page": 1, "index": 1}  # 100000 px
+        excluded, reason = matcher._should_exclude_image(large_img, page_area=page_area)
+        assert excluded is False
+
+
+class TestVendorSpecificMatcher:
+    """Test vendor-specific matcher configuration."""
+
+    def test_vendor_matcher_logs_info(self, caplog):
+        """Vendor matcher logs initialization info."""
+        import logging
+
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = None
+            with caplog.at_level(logging.INFO):
+                matcher = DeterministicImageMatcher(vendor_id="habitus")
+
+            assert "habitus" in caplog.text or "default" in caplog.text
+
+    def test_get_matcher_with_vendor_creates_new_instance(self):
+        """get_deterministic_image_matcher with vendor_id creates new instance."""
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = None
+
+            m1 = get_deterministic_image_matcher(vendor_id="vendor1")
+            m2 = get_deterministic_image_matcher(vendor_id="vendor2")
+
+            # Different vendors should create different instances
+            assert m1 is not m2
+            assert m1.vendor_id == "vendor1"
+            assert m2.vendor_id == "vendor2"
+
+    def test_is_product_image_respects_min_area(self):
+        """_is_product_image respects configured min_area_px."""
+        matcher = DeterministicImageMatcher()
+        matcher._min_area_px = 50000  # Custom threshold
+
+        # Below threshold
+        small_img = {"width": 200, "height": 200, "page": 1, "index": 0}  # 40000 px
+        assert matcher._is_product_image(small_img) is False
+
+        # At threshold
+        exact_img = {"width": 250, "height": 200, "page": 1, "index": 1}  # 50000 px
+        assert matcher._is_product_image(exact_img) is True
+
+        # Above threshold
+        large_img = {"width": 300, "height": 200, "page": 1, "index": 2}  # 60000 px
+        assert matcher._is_product_image(large_img) is True
+
+    @pytest.mark.asyncio
+    async def test_exclusion_count_logged(self, caplog):
+        """Excluded images count is logged."""
+        import logging
+
+        matcher = DeterministicImageMatcher()
+        images = [
+            {"bytes": b"", "width": 50, "height": 50, "page": 2, "index": 0},   # Logo (excluded)
+            {"bytes": b"", "width": 60, "height": 60, "page": 2, "index": 1},   # Logo (excluded)
+            {"bytes": b"", "width": 300, "height": 400, "page": 2, "index": 2}, # Product
+        ]
+        items = [
+            BOQItem(no=1, item_no="FUR-001", description="Desk", source_document_id="doc-1", source_page=1),
+        ]
+
+        with caplog.at_level(logging.INFO):
+            await matcher.match_images_to_items(images, items)
+
+        # Should log exclusion count
+        assert "Excluded" in caplog.text or "excluded" in caplog.text

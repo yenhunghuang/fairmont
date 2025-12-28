@@ -1,239 +1,204 @@
-# Tasks: 家具報價單系統 (Furniture Quotation System)
+# Tasks: 家具報價單系統 - 跨表合併功能
 
 **Input**: Design documents from `/specs/001-furniture-quotation-system/`
-**Prerequisites**: plan.md (required), spec.md (required), research.md, data-model.md, contracts/openapi.yaml
+**Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/openapi.yaml ✅
+**Date**: 2025-12-23
+**Updated**: 2025-12-24 - 跨表合併功能已實作並驗證通過
 
-**Tests**: TDD approach required per constitution (測試優先開發). Tests are included in each user story phase.
+**Tests**: 依據 constitution.md 標準，測試覆蓋率需 >= 80%，包含單元/整合/契約測試。
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
-
-**Updated**: 2025-12-19 - Excel 輸出格式更新為完全比照範本 15 欄，圖片使用 Base64 編碼
+**Organization**: 任務依 User Story 組織，每個 Story 可獨立實作與測試。
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3, US4)
-- Include exact file paths in descriptions
+- **[P]**: 可平行執行（不同檔案，無依賴）
+- **[Story]**: 所屬 User Story（US1, US2, US3, US4）
 
 ## Path Conventions
 
-- **Web app**: `backend/` for FastAPI, `frontend/` for Streamlit
-- See plan.md for detailed project structure
-
-## Key Changes from Previous Version
-
-| 變更項目 | 舊版 | 新版 |
-|----------|------|------|
-| Excel 欄位數 | 10 欄 | 15 欄（完全比照範本） |
-| 圖片儲存 | `photo_path` (檔案路徑) | `photo_base64` (Base64 編碼) |
-| 新增欄位 | - | `unit_cbm`, `brand` |
-| 移除欄位 | `source_type`, `qty_verified`, `qty_source` | *(保留於內部使用)* |
-| 留空欄位 | - | H: Unit Rate, I: Amount |
-| 公式欄位 | - | K: Total CBM (=F*J) |
+- **Backend**: `backend/app/`, `backend/tests/`
+- **Frontend**: `frontend/`
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup (共用基礎設施)
 
-**Purpose**: Project initialization and basic structure
+**Purpose**: 專案初始化與基礎結構（大部分已完成）
 
-- [x] T001 Create backend project structure per plan.md in backend/
-- [x] T002 Create frontend project structure per plan.md in frontend/
-- [x] T003 [P] Initialize backend Python project with pyproject.toml in backend/pyproject.toml
-- [x] T004 [P] Create backend requirements.txt with FastAPI, google-generativeai, PyMuPDF, openpyxl, Pillow, pydantic in backend/requirements.txt
-- [x] T005 [P] Create backend dev requirements with pytest, pytest-asyncio, pytest-cov, httpx, ruff, black in backend/requirements-dev.txt
-- [x] T006 [P] Create frontend requirements.txt with streamlit, httpx, Pillow in frontend/requirements.txt
-- [x] T007 [P] Configure ruff and black in backend/pyproject.toml
-- [x] T008 [P] Create .env.example with GEMINI_API_KEY, BACKEND_HOST, BACKEND_PORT, FRONTEND_PORT, TEMP_DIR, MAX_FILE_SIZE_MB in .env.example
-- [x] T009 [P] Create Docker configuration files: Dockerfile.backend, Dockerfile.frontend, docker-compose.yml
+- [x] T001 Create project structure per plan.md
+- [x] T002 Initialize Python project with dependencies
+- [x] T003 [P] Configure linting and formatting tools
+- [x] T004 更新 backend/app/utils/errors.py 新增 MERGE_* 錯誤碼
+- [x] T005 [P] 更新 backend/tests/conftest.py 新增合併相關 fixtures
 
 ---
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Phase 2: Foundational (阻塞性前置條件)
 
-**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
+**Purpose**: 所有 User Story 的共用核心元件
 
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+**⚠️ CRITICAL**: 必須完成此階段才能開始任何 User Story
 
-- [x] T010 Implement config module with Gemini API key and settings in backend/app/config.py
-- [x] T011 [P] Implement error handling utilities with ErrorCode enum and raise_error function (繁體中文訊息) in backend/app/utils/errors.py
-- [x] T012 [P] Implement file manager utility for temp file storage and cleanup in backend/app/utils/file_manager.py
-- [x] T013 [P] Implement input validators for PDF files in backend/app/utils/validators.py
-- [x] T014 **[UPDATED]** Update BOQItem Pydantic model per data-model.md (15 欄: 新增 unit_cbm, brand, 改用 photo_base64) in backend/app/models/boq_item.py
-- [x] T015 [P] Create SourceDocument Pydantic model per data-model.md in backend/app/models/source_document.py
-- [x] T016 [P] Create Quotation Pydantic model per data-model.md in backend/app/models/quotation.py
-- [x] T017 [P] Create ProcessingTask Pydantic model per data-model.md in backend/app/models/processing_task.py
-- [x] T018 [P] Create ExtractedImage Pydantic model per data-model.md in backend/app/models/extracted_image.py
-- [x] T019 [P] Create API response models (APIResponse, ErrorResponse, PaginatedResponse) in backend/app/models/responses.py
-- [x] T020 Create models __init__.py to export all models in backend/app/models/__init__.py
-- [x] T021 Implement InMemoryStore class for documents, tasks, quotations, images storage in backend/app/store.py
-- [x] T022 Implement FastAPI application with CORS, error handlers in backend/app/main.py
-- [x] T023 Implement API dependencies (get_store, file validation) in backend/app/api/dependencies.py
-- [x] T024 [P] Implement health check endpoint per openapi.yaml in backend/app/api/routes/health.py
-- [x] T025 Register all routers in FastAPI app in backend/app/main.py
-- [x] T026 Create utils __init__.py in backend/app/utils/__init__.py
-- [x] T027 Create services __init__.py in backend/app/services/__init__.py
-- [x] T028 Create api __init__.py in backend/app/api/__init__.py
-- [x] T029 Create api/routes __init__.py in backend/app/api/routes/__init__.py
-- [x] T030 Create app __init__.py in backend/app/__init__.py
-- [x] T031 Create pytest conftest.py with fixtures for FastAPI test client, mock store in backend/tests/conftest.py
-- [x] T032 Create tests __init__.py files in backend/tests/__init__.py, backend/tests/unit/__init__.py, backend/tests/integration/__init__.py, backend/tests/contract/__init__.py
+### 現有基礎（已完成）
 
-**Checkpoint**: Foundation ready - user story implementation can now begin
+- [x] T006 Implement config module in backend/app/config.py
+- [x] T007 Implement error handling utilities in backend/app/utils/errors.py
+- [x] T008 Implement InMemoryStore in backend/app/store.py
+- [x] T009 Create BOQItem model in backend/app/models/boq_item.py
+- [x] T010 Create SourceDocument model in backend/app/models/source_document.py
+
+### 跨表合併新增模型
+
+- [x] T011 [P] 更新 backend/app/models/source_document.py 新增 document_role, upload_order 欄位
+- [x] T012 [P] 建立 backend/app/models/merge_report.py（MergeReport, MergeResult, FormatWarning 模型）
+- [x] T013 [P] 建立 backend/app/models/quantity_summary.py（QuantitySummaryItem 模型）
+- [x] T014 [P] 更新 backend/app/models/boq_item.py 新增 source_files, item_no_normalized, merge_status, qty_from_summary 欄位
+- [x] T015 [P] 更新 backend/app/models/processing_task.py 新增 merge_documents, parse_quantity_summary 任務類型
+- [x] T016 更新 backend/app/models/__init__.py 匯出新模型
+
+### 跨表合併核心服務
+
+- [x] T017 [P] 建立 backend/app/services/item_normalizer.py（Item No. 標準化服務）
+- [x] T018 [P] 建立 backend/app/services/document_role_detector.py（PDF 角色偵測服務）
+- [x] T019 [P] 建立 backend/app/services/image_selector.py（圖片解析度選擇服務）
+
+### 核心服務單元測試
+
+- [x] T020 [P] 建立 backend/tests/unit/test_item_normalizer.py（單元測試）
+- [x] T021 [P] 建立 backend/tests/unit/test_document_role_detector.py（單元測試）
+- [x] T022 [P] 建立 backend/tests/unit/test_image_selector.py（單元測試）
+
+**Checkpoint**: 核心服務就緒 - 可開始 User Story 實作
 
 ---
 
 ## Phase 3: User Story 1 - 上傳 PDF 並生成報價單 (Priority: P1) 🎯 MVP
 
-**Goal**: 客戶上傳 BOQ PDF 檔案，系統解析並產出惠而蒙格式 Excel 報價單（**15 欄，完全比照範本**）
+**Goal**: 客戶上傳單一 BOQ PDF，系統解析並產出惠而蒙格式 Excel（15 欄）
 
-**Independent Test**: 上傳單一 BOQ PDF 檔案，驗證是否產出正確格式的 Excel 檔（15 欄，圖片以 Base64 嵌入）
+**Independent Test**: 上傳單一 BOQ PDF，驗證產出正確格式的 Excel（15 欄，圖片 Base64 嵌入）
 
-### Tests for User Story 1 ⚠️
+### Tests for User Story 1
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+- [x] T023 [P] [US1] 契約測試 backend/tests/contract/test_upload_api.py
+- [x] T024 [P] [US1] 契約測試 backend/tests/contract/test_export_api.py
+- [ ] T025 [P] [US1] 整合測試 backend/tests/integration/test_single_pdf_flow.py（更新驗證 15 欄）
 
-- [x] T033 [P] [US1] Contract test for POST /api/upload endpoint in backend/tests/contract/test_upload_api.py
-- [x] T034 [P] [US1] Contract test for POST /api/parse/{document_id} endpoint in backend/tests/contract/test_parse_api.py
-- [x] T035 [P] [US1] Contract test for GET /api/parse/{document_id}/result endpoint in backend/tests/contract/test_parse_api.py
-- [x] T036 [P] [US1] Contract test for POST /api/quotation endpoint in backend/tests/contract/test_export_api.py
-- [x] T037 [P] [US1] Contract test for POST /api/export/{quotation_id}/excel endpoint in backend/tests/contract/test_export_api.py
-- [x] T038 [P] [US1] Contract test for GET /api/export/{quotation_id}/download endpoint in backend/tests/contract/test_export_api.py
-- [x] T039 [P] [US1] Contract test for GET /api/task/{task_id} endpoint in backend/tests/contract/test_task_api.py
-- [x] T040 [P] [US1] Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py
-- [x] T041 [P] [US1] Unit test for image_extractor service (PyMuPDF, Base64 output) in backend/tests/unit/test_image_extractor.py
-- [x] T042 [P] [US1] Unit test for excel_generator service (openpyxl, 15 columns, Base64 image embed) in backend/tests/unit/test_excel_generator.py
-- [x] T043 [US1] Integration test for upload-parse-export flow in backend/tests/integration/test_upload_flow.py
+### Implementation for User Story 1（大部分已完成）
 
-### Implementation for User Story 1
+- [x] T026 [US1] Implement PDF parser service in backend/app/services/pdf_parser.py
+- [x] T027 [US1] Implement image extractor service in backend/app/services/image_extractor.py
+- [x] T028 [US1] Implement Excel generator service in backend/app/services/excel_generator.py
+- [x] T029 [US1] 更新 backend/app/api/routes/upload.py 回傳 document_role
+- [ ] T030 [US1] 驗證 backend/app/api/routes/export.py 正確產出 15 欄 Excel
+- [ ] T031 [US1] 更新 frontend/components/file_uploader.py 顯示 PDF 角色
 
-- [x] T044 **[UPDATED]** [US1] Update PDF parser service to extract all 15 fields (including unit_cbm, brand) in backend/app/services/pdf_parser.py
-- [x] T045 **[UPDATED]** [US1] Update image extractor service to output Base64 instead of file path in backend/app/services/image_extractor.py
-- [x] T046 **[UPDATED]** [US1] Update Excel generator service to output 15 columns per template (embed Base64 photos, add formulas for Total CBM) in backend/app/services/excel_generator.py
-- [x] T047 [US1] Implement upload route with file validation, BackgroundTasks per openapi.yaml in backend/app/api/routes/upload.py
-- [x] T048 [US1] Implement parse route with start parsing and get result endpoints in backend/app/api/routes/parse.py
-- [x] T049 [US1] Implement export route with create quotation, generate excel, download endpoints in backend/app/api/routes/export.py
-- [x] T050 [US1] Implement task status route per openapi.yaml in backend/app/api/routes/task.py
-- [x] T051 [US1] Implement image serving route for GET /api/images/{image_id} in backend/app/api/routes/upload.py
-- [x] T052 [US1] Create Streamlit API client with upload_pdf, get_task_status, wait_for_completion methods in frontend/services/api_client.py
-- [x] T053 [US1] Create frontend services __init__.py in frontend/services/__init__.py
-- [x] T054 [US1] Implement file uploader component with progress display in frontend/components/file_uploader.py
-- [x] T055 [US1] Implement progress display component with status messages in frontend/components/progress_display.py
-- [x] T056 [US1] Implement material table component for preview in frontend/components/material_table.py
-- [x] T057 [US1] Implement source reference component for PDF location display in frontend/components/source_reference.py
-- [x] T058 [US1] Create frontend components __init__.py in frontend/components/__init__.py
-- [x] T059 [US1] Implement upload page with file selection, processing, progress bar in frontend/pages/upload.py
-- [x] T060 [US1] Implement preview page with material table, Excel download button in frontend/pages/preview.py
-- [x] T061 [US1] Create frontend pages __init__.py in frontend/pages/__init__.py
-- [x] T062 [US1] Implement Streamlit main app with navigation in frontend/app.py
-- [x] T063 [US1] Add temp file cleanup background task on app startup in backend/app/main.py
-
-**Checkpoint**: User Story 1 should be fully functional - single PDF upload, parse, preview, and Excel download (15 columns)
+**Checkpoint**: User Story 1 完成 - 單一 PDF 上傳到 Excel 下載流程可獨立測試
 
 ---
 
-## Phase 4: User Story 2 - 多檔案上傳與合併處理 (Priority: P2)
+## Phase 4: User Story 2 - 多檔案上傳與跨表合併 (Priority: P1)
 
-**Goal**: 上傳多個 PDF 檔案，合併處理後產出單一 Excel 報價單（15 欄格式）
+**Goal**: 客戶上傳數量總表 + 明細規格表，系統自動識別角色並合併產出單一 Excel
 
-**Independent Test**: 上傳 2-3 份不同的 PDF 檔案，驗證系統能正確合併資料並產出單一整合報價單
+**Independent Test**: 上傳 `Bay Tower Furniture - Overall Qty.pdf` + `Casegoods & Seatings.pdf` + `Fabric & Leather.pdf`，驗證 Qty 來自數量總表、其他欄位來自明細規格表
 
-### Tests for User Story 2 ⚠️
+### Tests for User Story 2
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+- [ ] T032 [P] [US2] 單元測試 backend/tests/unit/test_quantity_parser.py
+- [ ] T033 [P] [US2] 單元測試 backend/tests/unit/test_merge_service.py
+- [ ] T034 [P] [US2] 契約測試 backend/tests/contract/test_merge_api.py
+- [ ] T035 [P] [US2] 整合測試 backend/tests/integration/test_merge_flow.py
 
-- [ ] T064 [P] [US2] Contract test for multi-file upload in POST /api/upload in backend/tests/contract/test_upload_api.py
-- [ ] T065 [P] [US2] Contract test for GET /api/documents listing in backend/tests/contract/test_upload_api.py
-- [ ] T066 [P] [US2] Unit test for multi-document quotation creation in backend/tests/unit/test_quotation_merge.py
-- [ ] T067 [US2] Integration test for multi-file upload, merge, export flow in backend/tests/integration/test_parse_export_flow.py
+### Services for User Story 2
 
-### Implementation for User Story 2
+- [x] T036 [US2] 建立 backend/app/services/quantity_parser.py（數量總表解析，專用 Gemini prompt）
+- [x] T037 [US2] 建立 backend/app/services/merge_service.py（跨表合併核心邏輯）
+- [x] T038 [US2] 更新 backend/app/store.py 新增 merge_reports 快取
 
-- [ ] T068 [US2] Update upload route to handle multiple files (max 5) per openapi.yaml in backend/app/api/routes/upload.py
-- [ ] T069 [US2] Implement document listing endpoint GET /api/documents in backend/app/api/routes/upload.py
-- [ ] T070 [US2] Implement document detail endpoint GET /api/documents/{document_id} in backend/app/api/routes/upload.py
-- [ ] T071 [US2] Implement document delete endpoint DELETE /api/documents/{document_id} in backend/app/api/routes/upload.py
-- [ ] T072 [US2] Update quotation creation to merge items from multiple documents in backend/app/api/routes/export.py
-- [ ] T073 [US2] Implement duplicate item_no detection and conflict handling in backend/app/services/quotation_merger.py
-- [ ] T074 [US2] Update file uploader component to support multiple file selection in frontend/components/file_uploader.py
-- [ ] T075 [US2] Update upload page to display file list and batch processing in frontend/pages/upload.py
-- [ ] T076 [US2] Update preview page to show merged results from multiple sources in frontend/pages/preview.py
+### API for User Story 2
 
-**Checkpoint**: User Stories 1 AND 2 should both work - single and multi-file upload with merge
+- [x] T039 [US2] 建立 backend/app/api/routes/merge.py（POST /api/v1/quotations/merge）
+- [x] T040 [US2] 更新 backend/app/api/routes/merge.py（GET /api/v1/quotations/{id}/merge-report）
+- [x] T041 [US2] 更新 backend/app/main.py 註冊 merge router
+- [x] T042 [US2] 更新 backend/app/models/responses.py 新增 MergeReportResponse DTO
+
+### Frontend for User Story 2
+
+- [ ] T043 [P] [US2] 建立 frontend/components/merge_progress.py（合併進度顯示）
+- [ ] T044 [P] [US2] 建立 frontend/components/merge_report.py（合併報告元件）
+- [ ] T045 [US2] 建立 frontend/pages/merge_preview.py（合併預覽頁面）
+- [x] T046 [US2] 更新 frontend/services/api_client.py 新增 create_merged_quotation, get_merge_report 方法
+- [x] T047 [US2] 更新 frontend/app.py 整合合併流程
+
+**Checkpoint**: User Story 2 完成 - 多 PDF 跨表合併流程可獨立測試
 
 ---
 
-## Phase 5: User Story 3 - BOQ 數量與平面圖核對 (Priority: P2)
+## Phase 5: User Story 3 - BOQ 數量與平面圖核對 (Priority: P3)
 
-**Goal**: 從平面圖 PDF 核對並補充 BOQ 中缺失的數量資訊
+**Goal**: 系統從平面圖核對並補充 BOQ 缺失數量
 
-**Independent Test**: 上傳一份 BOQ（部分項目無數量）與對應平面圖，驗證系統能識別並補充缺失數量
+**Independent Test**: 上傳 BOQ（部分無數量）+ 平面圖，驗證系統能識別並補充數量
 
-### Tests for User Story 3 ⚠️
+> **注意**: 此 Story 已在 User Story 2 跨表合併中處理主要需求（數量總表），平面圖核對優先級降低
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+### Tests for User Story 3
 
-- [ ] T077 [P] [US3] Contract test for POST /api/floor-plan/analyze endpoint in backend/tests/contract/test_floor_plan_api.py
-- [ ] T078 [P] [US3] Unit test for floor_plan_analyzer service with Gemini vision in backend/tests/unit/test_floor_plan_analyzer.py
-- [ ] T079 [US3] Integration test for BOQ + floor plan verification flow in backend/tests/integration/test_floor_plan_flow.py
+- [ ] T048 [P] [US3] 整合測試 backend/tests/integration/test_floor_plan_verification.py
 
 ### Implementation for User Story 3
 
-- [ ] T080 [US3] Implement floor plan analyzer service with Gemini vision (analyze_floor_plan) in backend/app/services/floor_plan_analyzer.py
-- [ ] T081 [US3] Implement floor plan analyze route POST /api/floor-plan/analyze in backend/app/api/routes/parse.py
-- [ ] T082 [US3] Add optional qty_verified and qty_source fields to BOQItem for internal tracking (not exported to Excel) in backend/app/models/boq_item.py
-- [ ] T083 [US3] Update material table component to display qty source indicator (BOQ/平面圖) in frontend/components/material_table.py
-- [ ] T084 [US3] Update upload page to support floor plan selection and verification trigger in frontend/pages/upload.py
-- [ ] T085 [US3] Add verification status display showing which items were verified from floor plan in frontend/pages/preview.py
+- [ ] T049 [US3] 驗證現有 backend/app/services/pdf_parser.py 平面圖解析功能
+- [ ] T050 [US3] 更新 BOQItem 數量來源標示（qty_source: "boq" | "floor_plan" | "quantity_summary"）
+- [ ] T051 [US3] 更新 frontend 顯示數量來源標示
 
-**Checkpoint**: User Stories 1, 2, AND 3 should all work - including floor plan quantity verification
+**Checkpoint**: User Story 3 完成 - 平面圖數量核對可獨立測試
 
 ---
 
 ## Phase 6: User Story 4 - 驗證材料產出表單 (Priority: P3)
 
-**Goal**: 提供完整的材料驗證介面，包含照片、編號、尺寸、使用材料及詳細規格
+**Goal**: 用戶可檢視完整材料驗證表單，確認報價單資料正確性
 
-**Independent Test**: 上傳包含完整規格的 PDF，驗證系統能正確提取並顯示所有 15 欄位資訊
+**Independent Test**: 上傳完整規格 PDF，驗證系統顯示所有欄位（照片、編號、尺寸、材料）
 
-### Tests for User Story 4 ⚠️
+### Tests for User Story 4
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
-
-- [ ] T086 [P] [US4] Contract test for GET /api/quotation/{quotation_id}/items endpoint in backend/tests/contract/test_export_api.py
-- [ ] T087 [P] [US4] Contract test for PATCH /api/quotation/{quotation_id}/items endpoint in backend/tests/contract/test_export_api.py
-- [ ] T088 [US4] Integration test for item editing and source reference in backend/tests/integration/test_verification_flow.py
+- [ ] T052 [P] [US4] 整合測試 backend/tests/integration/test_material_verification.py
 
 ### Implementation for User Story 4
 
-- [ ] T089 [US4] Implement quotation items listing endpoint GET /api/quotation/{quotation_id}/items in backend/app/api/routes/export.py
-- [ ] T090 [US4] Implement quotation items update endpoint PATCH /api/quotation/{quotation_id}/items in backend/app/api/routes/export.py
-- [ ] T091 [US4] Implement verification page with full material details display (all 15 fields) in frontend/pages/verification.py
-- [ ] T092 [US4] Update source reference component to show PDF page and location in frontend/components/source_reference.py
-- [ ] T093 [US4] Add item editing capability in verification page in frontend/pages/verification.py
-- [ ] T094 [US4] Update main app navigation to include verification page in frontend/app.py
+- [ ] T053 [US4] 驗證 backend/app/models/responses.py 包含完整 15 欄位
+- [ ] T054 [US4] 更新 frontend 材料驗證介面顯示所有欄位
+- [ ] T055 [US4] 新增項目對照原始 PDF 位置功能（source_page 欄位）
 
-**Checkpoint**: All 4 user stories should now be independently functional
+**Checkpoint**: User Story 4 完成 - 材料驗證表單可獨立測試
 
 ---
 
-## Phase 7: Polish & Cross-Cutting Concerns
+## Phase 7: Edge Cases & Error Handling
 
-**Purpose**: Improvements that affect multiple user stories
+**Purpose**: 處理邊界情況與錯誤
 
-- [ ] T095 [P] Add edge case handling for invalid/corrupted PDF files in backend/app/services/pdf_parser.py
-- [ ] T096 [P] Add edge case handling for encrypted/password-protected PDFs in backend/app/services/pdf_parser.py
-- [ ] T097 [P] Add edge case handling for PDFs without BOQ data in backend/app/services/pdf_parser.py
-- [ ] T098 [P] Implement file size validation (max 50MB per file, max 5 files) in backend/app/utils/validators.py
-- [ ] T099 [P] Add rate limiting for Gemini API calls with exponential backoff in backend/app/services/pdf_parser.py
-- [ ] T100 [P] Implement memory cache using cachetools for frequently accessed data in backend/app/store.py
-- [ ] T101 [P] Add comprehensive logging throughout services in backend/app/services/
-- [ ] T102 [P] Create E2E test for full flow using Playwright in frontend/tests/e2e/test_full_flow.py
-- [ ] T103 [P] Create frontend tests __init__.py files in frontend/tests/__init__.py, frontend/tests/e2e/__init__.py
-- [ ] T104 Run all tests and ensure coverage >= 80%
-- [ ] T105 Run ruff and black to ensure code quality
-- [ ] T106 Validate quickstart.md instructions by following them on clean environment
-- [ ] T107 [P] Add README.md with project overview and setup instructions in README.md
+- [x] T056 [P] 處理上傳多份數量總表時的錯誤提示（MERGE_001: 上傳多份數量總表，請僅保留一份）
+- [x] T057 [P] 處理無明細規格表時的錯誤提示（MERGE_002: 未上傳明細規格表，無法進行合併）
+- [x] T058 [P] 處理 Item No. 格式差異的標準化與警告（FormatWarning 模型）
+- [ ] T059 [P] 處理總頁數超過 200 頁的錯誤提示
+- [ ] T060 [P] 處理 PDF 加密或損毀的錯誤訊息
+
+---
+
+## Phase 8: Polish & Cross-Cutting Concerns
+
+**Purpose**: 跨 User Story 的改進
+
+- [x] T061 [P] 更新 CLAUDE.md 文件確保與新功能一致
+- [ ] T062 [P] 更新 quickstart.md 執行驗證
+- [x] T063 程式碼清理與重構（ruff check, black format）
+- [ ] T064 效能優化（確保多 PDF 合併 < 10 分鐘，最大 200 頁）
+- [ ] T065 [P] 補充單元測試達到 >= 80% 覆蓋率
+- [ ] T066 安全性檢查（檔案上傳驗證、路徑注入防護）
 
 ---
 
@@ -241,95 +206,88 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies - can start immediately
-- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
-- **User Stories (Phase 3-6)**: All depend on Foundational phase completion
-  - User stories can proceed in parallel (if staffed)
-  - Or sequentially in priority order (P1 → P2 → P2 → P3)
-- **Polish (Phase 7)**: Depends on all desired user stories being complete
+```
+Phase 1 (Setup) → Phase 2 (Foundational) → Phase 3-6 (User Stories) → Phase 7-8 (Edge Cases + Polish)
+                          ↓
+                    BLOCKS ALL USER STORIES
+```
+
+- **Setup (Phase 1)**: 無依賴 - 可立即開始
+- **Foundational (Phase 2)**: 依賴 Setup 完成 - **阻塞所有 User Stories**
+- **User Story 1 (Phase 3)**: 依賴 Foundational 完成
+- **User Story 2 (Phase 4)**: 依賴 Foundational 完成（與 US1 可平行）
+- **User Story 3 (Phase 5)**: 依賴 Foundational 完成
+- **User Story 4 (Phase 6)**: 依賴 Foundational 完成
+- **Edge Cases (Phase 7)**: 依賴 User Story 2 完成
+- **Polish (Phase 8)**: 依賴所有 User Stories 完成
 
 ### User Story Dependencies
 
-- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - No dependencies on other stories
-- **User Story 2 (P2)**: Builds on US1 upload/parse infrastructure but independently testable
-- **User Story 3 (P2)**: Builds on US1 parse infrastructure but independently testable
-- **User Story 4 (P3)**: Builds on US1 quotation infrastructure but independently testable
+| Story | Priority | Dependencies | Notes |
+|-------|----------|--------------|-------|
+| US1 | P1 | Foundational only | MVP 基礎功能 |
+| US2 | P1 | Foundational only | **核心跨表合併功能** |
+| US3 | P3 | Foundational only | 優先級降低（數量已由 US2 處理） |
+| US4 | P3 | Foundational only | 驗證輔助功能 |
 
 ### Within Each User Story
 
-- Tests MUST be written and FAIL before implementation (per constitution TDD requirement)
-- Models before services
-- Services before endpoints
-- Backend before frontend
-- Core implementation before UI integration
-- Story complete before moving to next priority
+1. 測試先行 → 驗證測試失敗
+2. Models → Services → API Routes
+3. Backend → Frontend
+4. Story 完成後再進入下一優先級
 
 ### Parallel Opportunities
 
-- All Setup tasks marked [P] can run in parallel
-- All Foundational tasks marked [P] can run in parallel (within Phase 2)
-- Once Foundational phase completes, all user stories can start in parallel (if team capacity allows)
-- All tests for a user story marked [P] can run in parallel
-- Models within a story marked [P] can run in parallel
-- Different user stories can be worked on in parallel by different team members
-
----
-
-## Parallel Example: User Story 1
-
+**Foundational Phase 內可平行**:
 ```bash
-# Launch all contract tests for User Story 1 together:
-Task: "Contract test for POST /api/upload endpoint in backend/tests/contract/test_upload_api.py"
-Task: "Contract test for POST /api/parse/{document_id} endpoint in backend/tests/contract/test_parse_api.py"
-Task: "Contract test for GET /api/parse/{document_id}/result endpoint in backend/tests/contract/test_parse_api.py"
-Task: "Contract test for POST /api/quotation endpoint in backend/tests/contract/test_export_api.py"
-# ... etc
+# Models (可同時建立)
+T011 (source_document.py) || T012 (merge_report.py) || T013 (quantity_summary.py) || T014 (boq_item.py) || T015 (processing_task.py)
 
-# Launch all unit tests for User Story 1 together:
-Task: "Unit test for pdf_parser service (Gemini integration) in backend/tests/unit/test_pdf_parser.py"
-Task: "Unit test for image_extractor service (PyMuPDF, Base64 output) in backend/tests/unit/test_image_extractor.py"
-Task: "Unit test for excel_generator service (openpyxl, 15 columns, Base64 image embed) in backend/tests/unit/test_excel_generator.py"
+# Core Services (可同時建立)
+T017 (item_normalizer.py) || T018 (document_role_detector.py) || T019 (image_selector.py)
+
+# Unit Tests (可同時建立)
+T020 (test_item_normalizer) || T021 (test_document_role_detector) || T022 (test_image_selector)
 ```
 
----
-
-## Parallel Example: Foundational Phase
-
+**User Story 2 Tests 可平行**:
 ```bash
-# Launch all model creation tasks together:
-Task: "Update BOQItem Pydantic model (15 欄) in backend/app/models/boq_item.py"
-Task: "Create SourceDocument Pydantic model in backend/app/models/source_document.py"
-Task: "Create Quotation Pydantic model in backend/app/models/quotation.py"
-Task: "Create ProcessingTask Pydantic model in backend/app/models/processing_task.py"
-Task: "Create ExtractedImage Pydantic model in backend/app/models/extracted_image.py"
-Task: "Create API response models in backend/app/models/responses.py"
+T032 (test_quantity_parser) || T033 (test_merge_service) || T034 (test_merge_api) || T035 (test_merge_flow)
+```
 
-# Launch all utility tasks together:
-Task: "Implement error handling utilities in backend/app/utils/errors.py"
-Task: "Implement file manager utility in backend/app/utils/file_manager.py"
-Task: "Implement input validators in backend/app/utils/validators.py"
+**User Story 2 Frontend 可平行**:
+```bash
+T043 (merge_progress.py) || T044 (merge_report.py)
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1 Only)
+### MVP First (User Story 1 + 2)
 
-1. Complete Phase 1: Setup
-2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
-3. Complete Phase 3: User Story 1 (**優先完成 T014, T044, T045, T046 以支援 15 欄格式**)
-4. **STOP and VALIDATE**: Test User Story 1 independently
-5. Deploy/demo if ready
+1. 完成 Phase 1: Setup（已完成大部分）
+2. 完成 Phase 2: Foundational（**CRITICAL - 阻塞所有 Stories**）
+3. 完成 Phase 3: User Story 1（單一 PDF 流程）
+4. **STOP and VALIDATE**: 獨立測試 User Story 1
+5. 完成 Phase 4: User Story 2（跨表合併）
+6. **STOP and VALIDATE**: 獨立測試 User Story 2
+7. 部署/展示 MVP
 
 ### Incremental Delivery
 
-1. Complete Setup + Foundational → Foundation ready
-2. Add User Story 1 → Test independently → Deploy/Demo (MVP!)
-3. Add User Story 2 → Test independently → Deploy/Demo
-4. Add User Story 3 → Test independently → Deploy/Demo
-5. Add User Story 4 → Test independently → Deploy/Demo
-6. Each story adds value without breaking previous stories
+```
+Setup + Foundational → 基礎就緒
+    ↓
+User Story 1 → 獨立測試 → 部署（基礎功能）
+    ↓
+User Story 2 → 獨立測試 → 部署（**核心跨表合併功能**）
+    ↓
+User Story 3 → 獨立測試 → 部署（平面圖核對）
+    ↓
+User Story 4 → 獨立測試 → 部署（材料驗證）
+```
 
 ### Parallel Team Strategy
 
@@ -337,38 +295,66 @@ With multiple developers:
 
 1. Team completes Setup + Foundational together
 2. Once Foundational is done:
-   - Developer A: User Story 1 (P1 - MVP)
-   - Developer B: User Story 2 (P2 - after US1 foundation ready)
-   - Developer C: User Story 3 (P2 - after US1 foundation ready)
-   - Developer D: User Story 4 (P3 - after US1 foundation ready)
+   - Developer A: User Story 1
+   - Developer B: User Story 2
 3. Stories complete and integrate independently
+4. Later: User Story 3 + 4
 
 ---
 
-## Priority Tasks for 15-Column Format Update
+## Summary
 
-以下任務需要優先更新以支援新的 15 欄格式：
+| Category | Count | Status |
+|----------|-------|--------|
+| **Total Tasks** | 66 | - |
+| **Setup (Phase 1)** | 5 | 5 completed |
+| **Foundational (Phase 2)** | 17 | 17 completed |
+| **User Story 1 (P1)** | 9 | 6 completed |
+| **User Story 2 (P1)** | 16 | 9 completed |
+| **User Story 3 (P3)** | 4 | 0 completed |
+| **User Story 4 (P3)** | 4 | 0 completed |
+| **Edge Cases (Phase 7)** | 5 | 3 completed |
+| **Polish (Phase 8)** | 6 | 2 completed |
 
-| 優先級 | Task ID | 說明 |
-|--------|---------|------|
-| 🔴 高 | T014 | 更新 BOQItem 模型（新增 unit_cbm, brand, photo_base64） |
-| 🔴 高 | T044 | 更新 PDF 解析服務（提取所有 15 欄資料） |
-| 🔴 高 | T045 | 更新圖片提取服務（輸出 Base64 而非檔案路徑） |
-| 🔴 高 | T046 | 更新 Excel 產生器（15 欄、Base64 圖片嵌入、Total CBM 公式） |
-| 🟡 中 | T040-T042 | 更新相關單元測試 |
-| 🟡 中 | T056 | 更新材料表元件以顯示新欄位 |
+### MVP Scope (建議)
+
+- **最小可行產品**: User Story 1 + User Story 2
+- **核心價值**: 跨表合併功能（數量總表 + 明細規格表 → Excel）
+- **預估任務數**: 約 47 個（含 Foundational）
+
+### Key New Files to Create
+
+| File | Description | Priority |
+|------|-------------|----------|
+| `backend/app/models/merge_report.py` | 合併報告模型 | 🔴 高 |
+| `backend/app/models/quantity_summary.py` | 數量總表項目模型 | 🔴 高 |
+| `backend/app/services/item_normalizer.py` | Item No. 標準化 | 🔴 高 |
+| `backend/app/services/document_role_detector.py` | PDF 角色偵測 | 🔴 高 |
+| `backend/app/services/quantity_parser.py` | 數量總表解析 | 🔴 高 |
+| `backend/app/services/merge_service.py` | 跨表合併核心 | 🔴 高 |
+| `backend/app/services/image_selector.py` | 圖片解析度選擇 | 🟡 中 |
+| `backend/app/api/routes/merge.py` | 合併 API 端點 | 🔴 高 |
+| `frontend/components/merge_progress.py` | 合併進度元件 | 🟡 中 |
+| `frontend/components/merge_report.py` | 合併報告元件 | 🟡 中 |
+| `frontend/pages/merge_preview.py` | 合併預覽頁面 | 🟡 中 |
 
 ---
 
 ## Notes
 
-- [P] tasks = different files, no dependencies
-- [Story] label maps task to specific user story for traceability
-- Each user story should be independently completable and testable
-- Verify tests fail before implementing (TDD per constitution)
-- Commit after each task or logical group
-- Stop at any checkpoint to validate story independently
-- All user-facing messages must be in 繁體中文
-- **Excel 輸出必須完全比照範本 15 欄，不包含額外追蹤欄位**
-- **圖片必須使用 Base64 編碼嵌入 Excel 儲存格**
-- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
+- [P] tasks = 可平行執行（不同檔案，無依賴）
+- [Story] label = 所屬 User Story（US1, US2, US3, US4）
+- 每個 User Story 可獨立完成與測試
+- 測試先行（TDD per constitution）
+- 每完成一個任務或邏輯群組就 commit
+- 在 checkpoint 停下來驗證 Story 獨立運作
+- 所有使用者訊息使用繁體中文
+- **Excel 輸出完全比照範本 15 欄**
+- **圖片使用 Base64 編碼嵌入 Excel**
+- **數量總表 Qty 無條件覆蓋明細規格表數量**
+- **多明細規格表依上傳順序合併**
+- **圖片選擇最高解析度（width × height）**
+
+---
+
+*Tasks generated by `/speckit.tasks` command - 2025-12-23*

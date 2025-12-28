@@ -2,6 +2,7 @@
 
 **Feature Branch**: `001-furniture-quotation-system`
 **Date**: 2025-12-19
+**Updated**: 2025-12-23 - 新增跨表合併功能
 
 ## 系統需求
 
@@ -120,32 +121,51 @@ docker-compose down
 
 ## 4. 基本使用流程
 
-### 4.1 上傳 PDF
+### 4.1 上傳 PDF（跨表合併模式）
+
+**新功能**：支援上傳多個 PDF 進行跨表合併
 
 1. 開啟瀏覽器訪問 http://localhost:8501
 2. 點擊「選擇 PDF 檔案」按鈕
-3. 選擇一個或多個 BOQ PDF 檔案（最多 5 個，每個最大 50MB）
+3. 選擇多個 PDF 檔案（最多 10 個，每個最大 50MB，總頁數 ≤ 200）
+   - **數量總表**：檔名含 `qty`, `overall`, `summary`, `數量`, `總量`, `總表`
+   - **明細規格表**：其他 PDF 檔案
 4. 點擊「開始處理」
 
-### 4.2 等待解析
+**範例上傳**：
+- `Bay Tower Furniture - Overall Qty.pdf`（數量總表）
+- `Casegoods & Seatings.pdf`（明細規格表 #1）
+- `Fabric & Leather.pdf`（明細規格表 #2）
+
+### 4.2 等待解析與合併
 
 系統將：
 1. 上傳檔案到伺服器
-2. 使用 Gemini AI 解析 BOQ 表格
-3. 提取文件中的圖片
-4. 顯示即時進度
+2. **自動偵測文件角色**（依檔名關鍵字）
+3. 解析數量總表（提取 Item No. + Total Qty）
+4. 解析明細規格表（提取完整 15 欄）
+5. **跨表合併**：
+   - 依 Item No. 配對項目
+   - 用數量總表的 qty 覆蓋明細表
+   - 多明細表欄位依上傳順序優先合併
+   - 圖片選擇最高解析度
+6. 顯示即時進度
 
 ### 4.3 預覽結果
 
 解析完成後：
-1. 檢視材料表格（8 欄惠而蒙格式）
-2. 確認圖片是否正確配對
-3. 修正任何解析錯誤
+1. 檢視材料表格（15 欄惠而蒙格式）
+2. 查看**合併報告**：
+   - 配對成功的項目（綠色）
+   - 未配對的項目（黃色警告）
+   - 僅在數量總表的項目（灰色）
+3. 確認圖片是否正確配對
+4. 修正任何解析錯誤
 
 ### 4.4 下載 Excel
 
 1. 點擊「下載 Excel」按鈕
-2. 系統產出惠而蒙格式報價單
+2. 系統產出惠而蒙格式報價單（15 欄）
 3. 儲存 .xlsx 檔案
 
 ## 5. API 快速測試
@@ -165,11 +185,13 @@ curl http://localhost:8000/
 }
 ```
 
-### 5.2 上傳 PDF
+### 5.2 上傳多個 PDF（跨表合併）
 
 ```bash
-curl -X POST http://localhost:8000/api/upload \
-  -F "files=@sample.pdf"
+curl -X POST http://localhost:8000/api/v1/documents \
+  -F "files=@Bay Tower Furniture - Overall Qty.pdf" \
+  -F "files=@Casegoods & Seatings.pdf" \
+  -F "files=@Fabric & Leather.pdf"
 ```
 
 回應：
@@ -179,24 +201,40 @@ curl -X POST http://localhost:8000/api/upload \
   "documents": [
     {
       "document_id": "abc123...",
-      "filename": "sample.pdf",
+      "filename": "Bay Tower Furniture - Overall Qty.pdf",
+      "document_role": "quantity_summary",
       "task_id": "def456..."
+    },
+    {
+      "document_id": "bcd234...",
+      "filename": "Casegoods & Seatings.pdf",
+      "document_role": "detail_spec",
+      "upload_order": 1,
+      "task_id": "efg567..."
+    },
+    {
+      "document_id": "cde345...",
+      "filename": "Fabric & Leather.pdf",
+      "document_role": "detail_spec",
+      "upload_order": 2,
+      "task_id": "fgh678..."
     }
   ],
-  "message": "已成功上傳 1 個檔案"
+  "message": "已成功上傳 3 個檔案"
 }
 ```
 
 ### 5.3 查詢任務狀態
 
 ```bash
-curl http://localhost:8000/api/task/{task_id}
+curl http://localhost:8000/api/v1/tasks/{task_id}
 ```
 
 回應：
 ```json
 {
   "task_id": "def456...",
+  "task_type": "parse_pdf",
   "status": "processing",
   "progress": 60,
   "message": "正在解析 BOQ 表格..."
@@ -206,19 +244,68 @@ curl http://localhost:8000/api/task/{task_id}
 ### 5.4 取得解析結果
 
 ```bash
-curl http://localhost:8000/api/parse/{document_id}/result
+curl http://localhost:8000/api/v1/documents/{document_id}/parse-result
 ```
 
-### 5.5 產出 Excel
+### 5.5 建立跨表合併報價單（新功能）
 
 ```bash
-curl -X POST http://localhost:8000/api/export/{quotation_id}/excel
+curl -X POST http://localhost:8000/api/v1/quotations/merge \
+  -H "Content-Type: application/json" \
+  -d '{
+    "document_ids": ["abc123...", "bcd234...", "cde345..."],
+    "title": "Bay Tower 家具報價單"
+  }'
 ```
 
-### 5.6 下載 Excel
+回應：
+```json
+{
+  "task_id": "merge-task-123...",
+  "quotation_id": "quot-456...",
+  "status": "processing",
+  "message": "跨表合併任務已建立",
+  "detected_roles": {
+    "quantity_summary": {
+      "document_id": "abc123...",
+      "filename": "Bay Tower Furniture - Overall Qty.pdf"
+    },
+    "detail_specs": [
+      {"document_id": "bcd234...", "filename": "Casegoods & Seatings.pdf", "upload_order": 1},
+      {"document_id": "cde345...", "filename": "Fabric & Leather.pdf", "upload_order": 2}
+    ]
+  }
+}
+```
+
+### 5.6 取得合併報告（新功能）
 
 ```bash
-curl -O http://localhost:8000/api/export/{quotation_id}/download
+curl http://localhost:8000/api/v1/quotations/{quotation_id}/merge-report
+```
+
+回應：
+```json
+{
+  "id": "report-789...",
+  "quotation_id": "quot-456...",
+  "total_items": 150,
+  "matched_items": 142,
+  "unmatched_items": 5,
+  "quantity_only_items": 3,
+  "match_rate": 94.67,
+  "warnings": [
+    "Item No. 'DLX-999' 僅在數量總表中出現，無明細規格",
+    "Item No. 'FUR-123' 在明細表中未找到對應數量"
+  ],
+  "processing_time_ms": 2500
+}
+```
+
+### 5.7 下載 Excel
+
+```bash
+curl -O http://localhost:8000/api/v1/quotations/{quotation_id}/excel
 ```
 
 ## 6. 開發指令

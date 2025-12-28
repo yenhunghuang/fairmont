@@ -2,6 +2,7 @@
 
 **Feature Branch**: `001-furniture-quotation-system`
 **Date**: 2025-12-19
+**Updated**: 2025-12-23 - 新增跨表合併相關模型
 **Spec Reference**: [spec.md](./spec.md)
 
 ## 概述
@@ -422,6 +423,342 @@ class ExtractedImage(BaseModel):
 |------|------|
 | VR-009 | `progress` 必須在 0-100 範圍內 |
 | VR-010 | `status` 變更必須遵循狀態轉換圖 |
+
+---
+
+## 跨表合併相關模型 (2025-12-23 新增)
+
+### 6. DocumentRole（文件角色）
+
+定義 PDF 文件在跨表合併中的角色。
+
+```python
+from enum import Enum
+
+class DocumentRole(str, Enum):
+    """PDF 文件角色"""
+    QUANTITY_SUMMARY = "quantity_summary"  # 數量總表
+    DETAIL_SPEC = "detail_spec"            # 明細規格表
+    UNKNOWN = "unknown"                     # 未知（需手動指定）
+```
+
+#### 角色偵測關鍵字
+
+| 角色 | 檔名關鍵字（不區分大小寫） |
+|------|---------------------------|
+| `quantity_summary` | `qty`, `overall`, `summary`, `數量`, `總量`, `總表` |
+| `detail_spec` | 其他所有 PDF |
+
+---
+
+### 7. QuantitySummaryItem（數量總表項目）
+
+代表從數量總表 PDF 解析出的數量資料。
+
+```python
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class QuantitySummaryItem(BaseModel):
+    """數量總表項目 - 僅包含 Item No 與數量"""
+
+    # 項目識別
+    item_no_raw: str = Field(..., description="原始 Item No.（從 PDF 解析）")
+    item_no_normalized: str = Field(..., description="標準化後的 Item No.")
+
+    # 數量資訊
+    total_qty: float = Field(..., ge=0, description="總數量")
+    uom: Optional[str] = Field(None, description="單位")
+
+    # 來源追蹤
+    source_document_id: str = Field(..., description="來源文件 ID")
+    source_page: Optional[int] = Field(None, ge=1, description="來源頁碼")
+
+    @classmethod
+    def normalize_item_no(cls, item_no: str) -> str:
+        """
+        標準化 Item No. 以支援跨表比對
+
+        規則：
+        1. 去除前後空白
+        2. 轉為大寫
+        3. 移除所有空格
+        4. 統一分隔符號為 '-'
+        """
+        import re
+        normalized = item_no.strip()
+        normalized = normalized.upper()
+        normalized = re.sub(r'\s+', '', normalized)
+        normalized = re.sub(r'[.\-_]+', '-', normalized)
+        return normalized
+```
+
+---
+
+### 8. MergeResult（合併結果）
+
+記錄單一項目的合併結果與來源追蹤。
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+from enum import Enum
+
+class MergeStatus(str, Enum):
+    """合併狀態"""
+    MATCHED = "matched"           # 成功配對（數量總表有對應項目）
+    UNMATCHED = "unmatched"       # 未配對（數量總表無對應項目）
+    QUANTITY_ONLY = "quantity_only"  # 僅在數量總表出現
+
+class MergeResult(BaseModel):
+    """單一項目的合併結果"""
+
+    # 項目識別
+    item_no_normalized: str = Field(..., description="標準化後的 Item No.")
+    original_item_nos: List[str] = Field(default_factory=list, description="原始 Item No. 列表")
+
+    # 合併狀態
+    status: MergeStatus = Field(..., description="合併狀態")
+
+    # 來源追蹤
+    quantity_source: Optional[str] = Field(None, description="數量來源文件 ID")
+    detail_sources: List[str] = Field(default_factory=list, description="明細來源文件 ID 列表（按上傳順序）")
+
+    # 欄位來源對照（用於 Merge Report 顯示）
+    field_sources: Dict[str, str] = Field(
+        default_factory=dict,
+        description="欄位 -> 來源文件 ID 對照"
+    )
+
+    # 圖片選擇
+    selected_image_source: Optional[str] = Field(None, description="選用圖片的來源文件 ID")
+    image_resolution: Optional[int] = Field(None, description="選用圖片的解析度 (width × height)")
+```
+
+---
+
+### 9. MergeReport（合併報告）
+
+完整的跨表合併報告，提供給使用者檢視合併結果。
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Dict, Optional
+from datetime import datetime
+
+class MergeReport(BaseModel):
+    """跨表合併報告"""
+
+    id: str = Field(..., description="報告 ID (UUID)")
+    quotation_id: str = Field(..., description="關聯報價單 ID")
+
+    # 來源文件
+    quantity_summary_doc_id: Optional[str] = Field(None, description="數量總表文件 ID")
+    detail_spec_doc_ids: List[str] = Field(default_factory=list, description="明細規格表文件 ID 列表（按上傳順序）")
+
+    # 合併統計
+    total_items: int = Field(0, ge=0, description="合併後總項目數")
+    matched_items: int = Field(0, ge=0, description="成功配對項目數")
+    unmatched_items: int = Field(0, ge=0, description="未配對項目數（僅在明細表）")
+    quantity_only_items: int = Field(0, ge=0, description="僅在數量總表的項目數")
+
+    # 合併詳情
+    merge_results: List[MergeResult] = Field(default_factory=list, description="各項目合併結果")
+
+    # 警告訊息
+    warnings: List[str] = Field(default_factory=list, description="合併過程警告訊息")
+
+    # 時間戳記
+    created_at: datetime = Field(default_factory=datetime.now)
+    processing_time_ms: int = Field(0, ge=0, description="處理時間（毫秒）")
+
+    def add_warning(self, message: str):
+        """新增警告訊息"""
+        self.warnings.append(message)
+
+    def get_match_rate(self) -> float:
+        """計算配對率"""
+        if self.total_items == 0:
+            return 0.0
+        return (self.matched_items / self.total_items) * 100
+```
+
+---
+
+### 10. SourceDocument 擴充欄位
+
+為現有 SourceDocument 模型新增跨表合併所需欄位：
+
+```python
+# 新增至 SourceDocument 模型
+
+class SourceDocument(BaseModel):
+    """來源文件資料模型（含跨表合併欄位）"""
+
+    # ... 現有欄位 ...
+
+    # 跨表合併欄位（2025-12-23 新增）
+    document_role: DocumentRole = Field(
+        DocumentRole.UNKNOWN,
+        description="文件角色（數量總表/明細規格表）"
+    )
+    upload_order: int = Field(
+        0,
+        ge=0,
+        description="上傳順序（用於多明細表合併優先順序）"
+    )
+    role_detected_by: Literal["filename", "manual", "content"] = Field(
+        "filename",
+        description="角色偵測方式"
+    )
+```
+
+---
+
+### 11. BOQItem 擴充欄位
+
+為現有 BOQItem 模型新增跨表合併追蹤欄位：
+
+```python
+# 新增至 BOQItem 模型
+
+class BOQItem(BaseModel):
+    """BOQ 項目資料模型（含跨表合併欄位）"""
+
+    # ... 現有欄位 ...
+
+    # 跨表合併欄位（2025-12-23 新增）
+    item_no_normalized: Optional[str] = Field(
+        None,
+        description="標準化後的 Item No.（用於跨表配對）"
+    )
+    source_files: List[str] = Field(
+        default_factory=list,
+        description="來源文件 ID 列表（多來源時記錄所有來源）"
+    )
+    merge_status: Optional[MergeStatus] = Field(
+        None,
+        description="合併狀態"
+    )
+    qty_from_summary: bool = Field(
+        False,
+        description="數量是否來自數量總表"
+    )
+    image_selected_from: Optional[str] = Field(
+        None,
+        description="圖片選自哪個來源文件 ID"
+    )
+```
+
+---
+
+### 12. ProcessingTask 擴充
+
+為 ProcessingTask 新增跨表合併任務類型：
+
+```python
+# 更新 ProcessingTask.task_type
+
+task_type: Literal[
+    "parse_pdf",
+    "extract_images",
+    "generate_excel",
+    "analyze_floor_plan",
+    "merge_documents",      # 新增：跨表合併任務
+    "parse_quantity_summary" # 新增：解析數量總表
+] = Field(..., description="任務類型")
+```
+
+---
+
+## 跨表合併驗證規則
+
+### QuantitySummaryItem
+| 規則 | 描述 |
+|------|------|
+| VR-011 | `item_no_raw` 必填，不可為空白 |
+| VR-012 | `total_qty` 必須 ≥ 0 |
+
+### MergeResult
+| 規則 | 描述 |
+|------|------|
+| VR-013 | `item_no_normalized` 必填 |
+| VR-014 | `status` 必須為有效的 MergeStatus |
+| VR-015 | 若 `status` 為 `matched`，`quantity_source` 必填 |
+
+### MergeReport
+| 規則 | 描述 |
+|------|------|
+| VR-016 | `quotation_id` 必須對應有效的 Quotation |
+| VR-017 | `matched_items + unmatched_items + quantity_only_items = total_items` |
+
+### SourceDocument (跨表合併)
+| 規則 | 描述 |
+|------|------|
+| VR-018 | 每次上傳最多 1 個 `quantity_summary` 角色文件 |
+| VR-019 | 每次上傳最多 10 個 PDF 文件 |
+| VR-020 | 所有文件總頁數不超過 200 頁 |
+
+---
+
+## 跨表合併資料流程圖
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           使用者上傳多個 PDF                                   │
+│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐   │
+│  │ Bay Tower...Qty.pdf │  │ Casegoods.pdf       │  │ Fabric.pdf          │   │
+│  │ (quantity_summary)  │  │ (detail_spec #1)    │  │ (detail_spec #2)    │   │
+│  └──────────┬──────────┘  └──────────┬──────────┘  └──────────┬──────────┘   │
+└─────────────│─────────────────────────│─────────────────────────│────────────┘
+              │                         │                         │
+              ▼                         ▼                         ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        DocumentRoleDetector                                  │
+│   根據檔名關鍵字偵測角色 → quantity_summary / detail_spec                     │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              │                                         │
+              ▼                                         ▼
+┌─────────────────────────────┐         ┌─────────────────────────────────────┐
+│   QuantitySummaryParser     │         │        PDFParserService              │
+│   (專用 Gemini Prompt)       │         │   (現有解析流程，產出 BOQItem[])      │
+│                             │         │                                      │
+│   產出：                     │         │   產出：                             │
+│   QuantitySummaryItem[]     │         │   BOQItem[] (detail_spec #1)        │
+│   (Item No + Total Qty)     │         │   BOQItem[] (detail_spec #2)        │
+└──────────────┬──────────────┘         └──────────────────┬──────────────────┘
+               │                                           │
+               │                                           │
+               └──────────────────┬────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           MergeService                                       │
+│                                                                              │
+│   1. Item No. 標準化 (ItemNormalizer)                                        │
+│   2. 建立 quantity_summary 索引 (Item No. → Total Qty)                       │
+│   3. 遍歷 detail_spec 項目，依 Item No. 查找數量                              │
+│   4. 多明細表欄位合併（upload_order 優先）                                    │
+│   5. 圖片選擇（最高解析度）                                                   │
+│   6. 產出合併後 BOQItem[] 與 MergeReport                                     │
+│                                                                              │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Quotation                                         │
+│   items: BOQItem[] (合併後)                                                  │
+│   merge_report_id: str (關聯合併報告)                                         │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ExcelGeneratorService                                 │
+│   產出惠而蒙格式 15 欄 Excel                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

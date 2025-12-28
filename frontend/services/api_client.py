@@ -38,7 +38,7 @@ class APIClient:
             httpx.HTTPError: If request fails
         """
         try:
-            response = self.client.get(f"{self.base_url}/health")
+            response = self.client.get(f"{self.base_url}/api/v1/health")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -90,7 +90,7 @@ class APIClient:
                     file_list.append(("files", (filename, content, "application/pdf")))
 
             response = self.client.post(
-                f"{self.base_url}/api/documents",
+                f"{self.base_url}/api/v1/documents",
                 files=file_list,
                 params={"extract_images": extract_images},
             )
@@ -114,7 +114,7 @@ class APIClient:
             httpx.HTTPError: If request fails
         """
         try:
-            response = self.client.get(f"{self.base_url}/api/tasks/{task_id}")
+            response = self.client.get(f"{self.base_url}/api/v1/tasks/{task_id}")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -164,7 +164,7 @@ class APIClient:
             httpx.HTTPError: If request fails
         """
         try:
-            response = self.client.get(f"{self.base_url}/api/documents")
+            response = self.client.get(f"{self.base_url}/api/v1/documents")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -185,7 +185,7 @@ class APIClient:
             httpx.HTTPError: If request fails
         """
         try:
-            response = self.client.get(f"{self.base_url}/api/documents/{document_id}")
+            response = self.client.get(f"{self.base_url}/api/v1/documents/{document_id}")
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -210,7 +210,7 @@ class APIClient:
         """
         try:
             response = self.client.post(
-                f"{self.base_url}/api/documents/{document_id}/parsing",
+                f"{self.base_url}/api/v1/documents/{document_id}/parsing",
                 json={"extract_images": extract_images},
             )
             response.raise_for_status()
@@ -234,7 +234,7 @@ class APIClient:
         """
         try:
             response = self.client.get(
-                f"{self.base_url}/api/documents/{document_id}/parse-result"
+                f"{self.base_url}/api/v1/documents/{document_id}/parse-result"
             )
             response.raise_for_status()
             return response.json()
@@ -244,7 +244,7 @@ class APIClient:
 
     def create_quotation(self, document_ids: List[str]) -> Dict[str, Any]:
         """
-        Create quotation from documents.
+        Create quotation from documents (simple merge without quantity summary).
 
         Args:
             document_ids: List of document IDs to include
@@ -257,13 +257,87 @@ class APIClient:
         """
         try:
             response = self.client.post(
-                f"{self.base_url}/api/quotations",
+                f"{self.base_url}/api/v1/quotations",
                 json={"document_ids": document_ids},
             )
             response.raise_for_status()
             return response.json()
         except Exception as e:
             logger.error(f"Failed to create quotation: {e}")
+            raise
+
+    def create_merged_quotation(
+        self,
+        document_ids: List[str],
+        title: str | None = None,
+        max_wait: int = 120,
+        poll_interval: int = 2,
+    ) -> Dict[str, Any]:
+        """
+        Create quotation with cross-document merge (uses quantity summary).
+
+        This endpoint automatically:
+        - Detects quantity summary vs detail spec documents
+        - Merges quantities from summary into detail items
+        - Selects highest resolution images
+
+        Args:
+            document_ids: List of document IDs to include
+            title: Optional quotation title
+            max_wait: Maximum wait time for merge completion
+            poll_interval: Poll interval in seconds
+
+        Returns:
+            Created quotation information with merge report
+
+        Raises:
+            httpx.HTTPError: If request fails
+            TimeoutError: If merge takes too long
+        """
+        try:
+            # Start merge
+            payload = {"document_ids": document_ids}
+            if title:
+                payload["title"] = title
+
+            response = self.client.post(
+                f"{self.base_url}/api/v1/quotations/merge",
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # If merge is async (202), wait for completion
+            if response.status_code == 202:
+                task_id = result.get("data", {}).get("task_id")
+                quotation_id = result.get("data", {}).get("quotation_id")
+
+                if task_id:
+                    # Wait for task completion
+                    task_result = self.wait_for_completion(task_id, max_wait, poll_interval)
+                    task_status = task_result.get("data", {}).get("status")
+
+                    if task_status == "completed":
+                        # Return quotation info
+                        return {
+                            "success": True,
+                            "message": "跨表合併完成",
+                            "data": {"id": quotation_id},
+                        }
+                    else:
+                        error = task_result.get("data", {}).get("error", "合併失敗")
+                        return {
+                            "success": False,
+                            "message": error,
+                            "data": None,
+                        }
+
+            return result
+
+        except TimeoutError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to create merged quotation: {e}")
             raise
 
     def get_quotation_excel(
@@ -303,7 +377,7 @@ class APIClient:
             elapsed = 0
             while elapsed < max_wait:
                 response = self.client.get(
-                    f"{self.base_url}/api/quotations/{quotation_id}/excel",
+                    f"{self.base_url}/api/v1/quotations/{quotation_id}/excel",
                     params=params,
                 )
 
@@ -352,7 +426,7 @@ class APIClient:
                 params["status"] = status
 
             response = self.client.get(
-                f"{self.base_url}/api/tasks",
+                f"{self.base_url}/api/v1/tasks",
                 params=params,
             )
             response.raise_for_status()
