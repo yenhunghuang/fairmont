@@ -16,6 +16,32 @@ from ...utils import log_error
 
 logger = logging.getLogger(__name__)
 
+
+def _detect_document_type_from_filename(filename: str) -> str:
+    """從檔名偵測文件類型.
+
+    Args:
+        filename: PDF 檔名
+
+    Returns:
+        文件類型識別碼（furniture_specification, fabric_specification, quantity_summary）
+    """
+    filename_lower = filename.lower()
+
+    # 家具類：Casegoods, Seating, Lighting
+    if any(kw in filename_lower for kw in ["casegoods", "seating", "lighting"]):
+        return "furniture_specification"
+    # 面料類：Fabric, Leather, Vinyl
+    elif any(kw in filename_lower for kw in ["fabric", "leather", "vinyl"]):
+        return "fabric_specification"
+    # 數量總表：Qty, Overall, Summary, Quantity
+    elif any(kw in filename_lower for kw in ["qty", "overall", "summary", "quantity"]):
+        return "quantity_summary"
+
+    # 預設為家具明細
+    return "furniture_specification"
+
+
 router = APIRouter(prefix="/api/v1", tags=["Parse"])
 
 
@@ -134,14 +160,23 @@ async def _parse_pdf_background(
             if images_with_bytes and boq_items:
                 task.update_progress(75, "正在匹配圖片到項目...")
 
+                # Detect document type from filename for page offset configuration
+                document_type = _detect_document_type_from_filename(document.filename)
+
                 # Use deterministic algorithm: match based on page location + image size
-                # Rule-based approach: items on page N → images on page N+1, select largest image
+                # Rule-based approach: items on page N → images on page N+offset, select largest image
                 # Automatically excludes logos/icons (small area) and selects product samples
-                matcher = get_deterministic_image_matcher()
+                matcher = get_deterministic_image_matcher(vendor_id="habitus")
+                page_offset = matcher.get_page_offset(document_type)
+
+                logger.info(
+                    f"Image matching: document_type={document_type}, page_offset={page_offset}"
+                )
+
                 image_to_item_map = await matcher.match_images_to_items(
                     images_with_bytes,
                     boq_items,
-                    target_page_offset=1,
+                    target_page_offset=page_offset,
                 )
 
                 # Apply matches - convert to Base64 and assign to items

@@ -577,3 +577,93 @@ class TestVendorSpecificMatcher:
 
         # Should log exclusion count
         assert "Excluded" in caplog.text or "excluded" in caplog.text
+
+
+class TestPageOffsetConfiguration:
+    """Test page offset configuration from Skill."""
+
+    def test_get_page_offset_default_without_skill(self):
+        """get_page_offset returns default 1 without Skill config."""
+        matcher = DeterministicImageMatcher()
+        assert matcher.get_page_offset() == 1
+        assert matcher.get_page_offset(None) == 1
+        assert matcher.get_page_offset("furniture_specification") == 1
+
+    def test_get_page_offset_with_skill_config(self):
+        """get_page_offset uses Skill config when available."""
+        from app.services.skill_loader import PageOffsetConfig
+
+        mock_skill = MagicMock()
+        mock_skill.image_extraction.product_image.min_area_px = 10000
+        mock_skill.image_extraction.exclusions = []
+        mock_skill.image_extraction.page_offset = PageOffsetConfig(
+            default=1,
+            by_document_type={
+                "furniture_specification": 1,
+                "fabric_specification": 2,
+                "quantity_summary": 0,
+            }
+        )
+
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = mock_skill
+            matcher = DeterministicImageMatcher(vendor_id="habitus")
+
+            assert matcher.get_page_offset() == 1  # Default
+            assert matcher.get_page_offset("furniture_specification") == 1
+            assert matcher.get_page_offset("fabric_specification") == 2
+            assert matcher.get_page_offset("quantity_summary") == 0
+            assert matcher.get_page_offset("unknown") == 1  # Falls back to default
+
+    def test_get_page_offset_fallback_when_skill_not_found(self):
+        """get_page_offset falls back to 1 when Skill not found."""
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = None
+            matcher = DeterministicImageMatcher(vendor_id="nonexistent")
+
+            assert matcher.get_page_offset() == 1
+            assert matcher.get_page_offset("any_type") == 1
+
+    @pytest.mark.asyncio
+    async def test_matching_with_configured_offset(self):
+        """Integration test: matching uses configured page offset."""
+        from app.services.skill_loader import PageOffsetConfig
+
+        mock_skill = MagicMock()
+        mock_skill.image_extraction.product_image.min_area_px = 10000
+        mock_skill.image_extraction.exclusions = []
+        mock_skill.image_extraction.page_offset = PageOffsetConfig(
+            default=1,
+            by_document_type={"fabric_specification": 2}
+        )
+
+        # Image on page 3 (offset 2 from spec on page 1)
+        images = [
+            {"bytes": b"", "width": 300, "height": 400, "page": 3, "index": 0},
+        ]
+        items = [
+            BOQItem(
+                no=1,
+                item_no="FAB-001",
+                description="Fabric",
+                source_document_id="doc-1",
+                source_page=1,
+            ),
+        ]
+
+        with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
+            mock_loader.return_value.load_vendor_or_default.return_value = mock_skill
+            matcher = DeterministicImageMatcher(vendor_id="habitus")
+
+            # With default offset=1, no match (looks at page 2)
+            mapping_default = await matcher.match_images_to_items(
+                images, items, target_page_offset=matcher.get_page_offset()
+            )
+            assert len(mapping_default) == 0
+
+            # With fabric offset=2, match found (looks at page 3)
+            mapping_fabric = await matcher.match_images_to_items(
+                images, items, target_page_offset=matcher.get_page_offset("fabric_specification")
+            )
+            assert len(mapping_fabric) == 1
+            assert 0 in mapping_fabric

@@ -55,6 +55,7 @@ class DeterministicImageMatcher:
         self.vendor_id = vendor_id
         self._exclusion_rules: Optional[list[dict]] = None
         self._min_area_px: int = MIN_PRODUCT_IMAGE_AREA
+        self._page_offset_config: Optional[Any] = None  # PageOffsetConfig from Skill
 
         # Load Skill config if vendor_id provided
         if vendor_id:
@@ -87,10 +88,12 @@ class DeterministicImageMatcher:
                 {"type": rule.type, "description": rule.description, "rules": rule.rules}
                 for rule in img_config.exclusions
             ]
+            self._page_offset_config = img_config.page_offset
 
             logger.info(
                 f"Loaded Skill config: min_area={self._min_area_px}px, "
-                f"exclusion_rules={len(self._exclusion_rules)}"
+                f"exclusion_rules={len(self._exclusion_rules)}, "
+                f"page_offset_default={self._page_offset_config.default}"
             )
 
         except Exception as e:
@@ -152,6 +155,19 @@ class DeterministicImageMatcher:
         """
         area = img["width"] * img["height"]
         return area >= self._min_area_px
+
+    def get_page_offset(self, document_type: Optional[str] = None) -> int:
+        """Get page offset for the given document type.
+
+        Args:
+            document_type: Document type identifier (e.g., 'furniture_specification')
+
+        Returns:
+            Page offset value (default: 1)
+        """
+        if self._page_offset_config is not None:
+            return self._page_offset_config.get_offset(document_type)
+        return 1  # Default fallback
 
     async def match_images_to_items(
         self,

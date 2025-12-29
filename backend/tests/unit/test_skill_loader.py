@@ -8,6 +8,7 @@ import yaml
 
 from app.services.skill_loader import (
     ImageExclusionRule,
+    PageOffsetConfig,
     PromptTemplate,
     SkillLoaderService,
     SkillNotFoundError,
@@ -357,3 +358,89 @@ class TestHabitusSkillIntegration:
         parse_prompt = skill.prompts.parse_specification
         assert parse_prompt.system  # 非空
         assert parse_prompt.user_template  # 非空
+
+        # 驗證頁面偏移配置
+        page_offset = skill.image_extraction.page_offset
+        assert page_offset.default == 1
+        assert "furniture_specification" in page_offset.by_document_type
+
+
+class TestPageOffsetConfig:
+    """PageOffsetConfig 測試."""
+
+    def test_default_offset(self):
+        """預設偏移值."""
+        config = PageOffsetConfig()
+        assert config.default == 1
+        assert config.by_document_type == {}
+
+    def test_get_offset_default(self):
+        """get_offset 回傳預設值."""
+        config = PageOffsetConfig(default=1)
+        assert config.get_offset() == 1
+        assert config.get_offset(None) == 1
+
+    def test_get_offset_by_document_type(self):
+        """get_offset 依文件類型回傳正確偏移."""
+        config = PageOffsetConfig(
+            default=1,
+            by_document_type={
+                "furniture_specification": 1,
+                "fabric_specification": 2,
+                "quantity_summary": 0,
+            }
+        )
+        assert config.get_offset("furniture_specification") == 1
+        assert config.get_offset("fabric_specification") == 2
+        assert config.get_offset("quantity_summary") == 0
+
+    def test_get_offset_unknown_type_uses_default(self):
+        """未知文件類型使用預設值."""
+        config = PageOffsetConfig(
+            default=1,
+            by_document_type={"furniture_specification": 1}
+        )
+        assert config.get_offset("unknown_type") == 1
+
+    def test_get_offset_custom_default(self):
+        """自訂預設值."""
+        config = PageOffsetConfig(default=2)
+        assert config.get_offset() == 2
+        assert config.get_offset("any_type") == 2
+
+    def test_page_offset_in_vendor_skill(self, tmp_path: Path):
+        """VendorSkill 正確解析 page_offset 配置."""
+        skills_dir = tmp_path
+        (skills_dir / "vendors").mkdir(parents=True)
+
+        # 建立包含 page_offset 的配置
+        config = {
+            "vendor": {
+                "name": "Test Vendor",
+                "identifier": "test",
+            },
+            "image_extraction": {
+                "page_offset": {
+                    "default": 1,
+                    "by_document_type": {
+                        "furniture_specification": 1,
+                        "fabric_specification": 2,
+                    }
+                },
+                "product_image": {
+                    "min_area_px": 10000,
+                },
+            },
+        }
+        vendor_path = skills_dir / "vendors" / "test.yaml"
+        with open(vendor_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=skills_dir, cache_enabled=False)
+        skill = loader.load_vendor("test")
+
+        page_offset = skill.image_extraction.page_offset
+        assert page_offset.default == 1
+        assert page_offset.get_offset("furniture_specification") == 1
+        assert page_offset.get_offset("fabric_specification") == 2
+        assert page_offset.get_offset("unknown") == 1

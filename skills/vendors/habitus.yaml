@@ -137,6 +137,14 @@ document_structure:
 # 圖片抓取規則
 # ============================================================
 image_extraction:
+  # 頁面偏移配置（圖片在規格頁後幾頁）
+  page_offset:
+    default: 1
+    by_document_type:
+      furniture_specification: 1   # 家具明細：規格頁 +1 頁有產品圖
+      fabric_specification: 1      # 面料明細：規格頁 +1 頁有產品圖
+      quantity_summary: 0          # 數量總表：無圖片匹配
+
   # 產品圖選擇策略
   product_image:
     source_page: "attachment_page"
