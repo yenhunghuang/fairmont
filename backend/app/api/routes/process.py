@@ -1,10 +1,12 @@
 """Process API route - 單一整合端點.
 
 提供簡化的 API 給前端：上傳 PDF → 直接返回 15 欄 JSON。
-整合現有的 PDF 解析、圖片提取、圖片匹配功能。
+整合現有的 PDF 解析、數量總表解析、跨表合併、面料排序功能。
+使用 skills yaml 配置來支援完整功能。
 """
 
 import logging
+import uuid
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Depends, Query
 from pydantic import BaseModel, Field
@@ -18,6 +20,9 @@ from ...api.dependencies import (
 from ...services.pdf_parser import get_pdf_parser
 from ...services.image_extractor import get_image_extractor
 from ...services.image_matcher_deterministic import get_deterministic_image_matcher
+from ...services.document_role_detector import get_document_role_detector_service
+from ...services.quantity_parser import get_quantity_parser_service
+from ...services.merge_service import get_merge_service
 from ...store import InMemoryStore
 from ...utils import FileManager, log_error
 
@@ -32,6 +37,20 @@ class ProcessResponse(BaseModel):
     items: List[dict] = Field(..., description="BOQ 項目列表（15 欄）")
     total_items: int = Field(..., description="總項目數")
     statistics: dict = Field(..., description="統計資訊")
+
+
+def _detect_document_type_from_filename(filename: str) -> str:
+    """從檔名偵測文件類型（用於圖片匹配）."""
+    filename_lower = filename.lower()
+
+    if any(kw in filename_lower for kw in ["casegoods", "seating", "lighting"]):
+        return "furniture_specification"
+    elif any(kw in filename_lower for kw in ["fabric", "leather", "vinyl"]):
+        return "fabric_specification"
+    elif any(kw in filename_lower for kw in ["qty", "overall", "summary", "quantity"]):
+        return "quantity_summary"
+
+    return "furniture_specification"
 
 
 @router.post(
@@ -51,6 +70,7 @@ async def process_pdfs(
     上傳 PDF 檔案並直接返回 15 欄 JSON.
 
     這是一個同步整合端點，將上傳、解析、合併全部在一個請求中完成。
+    支援跨表合併：自動識別數量總表與明細規格表，執行合併與面料排序。
 
     - **files**: PDF 檔案列表（最多 5 個，單檔最大 50MB）
     - **title**: 報價單標題（可選）
@@ -64,54 +84,87 @@ async def process_pdfs(
         validated_files = await validate_pdf_files(files)
         logger.info(f"Validated {len(validated_files)} PDF files")
 
-        # 2. 解析所有 PDF
-        all_items = []
-        total_images = 0
-        matched_images = 0
+        # 2. 識別文件角色並儲存
+        role_detector = get_document_role_detector_service()
+        documents = []
+        qty_doc = None
+        detail_docs = []
 
-        for filename, content in validated_files:
-            # 儲存檔案
+        for upload_order, (filename, content) in enumerate(validated_files):
             file_path = file_manager.save_upload_file(content, filename)
 
-            # 建立文件記錄
+            # 偵測文件角色
+            document_role, role_detected_by = role_detector.detect_role(filename)
+
             doc = SourceDocument(
                 filename=filename,
                 file_path=file_path,
                 file_size=len(content),
                 document_type="unknown",
-                parse_status="processing",
+                parse_status="pending",
+                document_role=document_role,
+                upload_order=upload_order,
+                role_detected_by=role_detected_by,
             )
-            store.add_document(doc)
 
-            # 驗證 PDF
+            # 驗證 PDF 頁數
             parser = get_pdf_parser()
             page_count, _ = parser.validate_pdf(file_path)
             doc.total_pages = page_count
 
-            # 解析 PDF（同步等待）
-            logger.info(f"Parsing PDF: {filename} ({page_count} pages)")
-            boq_items, image_paths = await parser.parse_boq_with_gemini(
-                file_path=file_path,
+            store.add_document(doc)
+            documents.append(doc)
+
+            if document_role == "quantity_summary":
+                qty_doc = doc
+            else:
+                detail_docs.append(doc)
+
+        logger.info(
+            f"Document roles: {len(detail_docs)} detail specs, "
+            f"{'1 quantity summary' if qty_doc else 'no quantity summary'}"
+        )
+
+        # 3. 解析明細規格表（Gemini AI）
+        detail_boq_items = []
+        total_images = 0
+        matched_images = 0
+
+        for doc in detail_docs:
+            doc.parse_status = "processing"
+            store.update_document(doc)
+
+            logger.info(f"Parsing detail spec: {doc.filename} ({doc.total_pages} pages)")
+
+            boq_items, _, project_metadata = await parser.parse_boq_with_gemini(
+                file_path=doc.file_path,
                 document_id=doc.id,
                 extract_images=extract_images,
             )
 
+            # 儲存專案名稱
+            if project_metadata:
+                doc.project_name = project_metadata.get("project_name")
+
             # 圖片提取和匹配
             if extract_images and boq_items:
                 extractor = get_image_extractor()
-                images_with_bytes = extractor.extract_images_with_bytes(file_path, doc.id)
+                images_with_bytes = extractor.extract_images_with_bytes(
+                    doc.file_path, doc.id
+                )
                 total_images += len(images_with_bytes)
 
                 if images_with_bytes:
-                    # 使用確定性演算法匹配圖片
-                    matcher = get_deterministic_image_matcher()
+                    document_type = _detect_document_type_from_filename(doc.filename)
+                    matcher = get_deterministic_image_matcher(vendor_id="habitus")
+                    page_offset = matcher.get_page_offset(document_type)
+
                     image_to_item_map = await matcher.match_images_to_items(
                         images_with_bytes,
                         boq_items,
-                        target_page_offset=1,  # 預設偏移
+                        target_page_offset=page_offset,
                     )
 
-                    # 套用匹配結果
                     for img_idx, item_id in image_to_item_map.items():
                         if img_idx < len(images_with_bytes):
                             img_data = images_with_bytes[img_idx]
@@ -122,42 +175,69 @@ async def process_pdfs(
                                 item.photo_base64 = base64_str
                                 matched_images += 1
 
-            # 更新文件狀態
             doc.parse_status = "completed"
             doc.extracted_items_count = len(boq_items)
             store.update_document(doc)
 
-            # 收集項目
-            all_items.extend(boq_items)
-            logger.info(f"Parsed {len(boq_items)} items from {filename}")
+            detail_boq_items.append(boq_items)
+            logger.info(f"Parsed {len(boq_items)} items from {doc.filename}")
 
-        # 3. 重新編號（合併多份 PDF 時）
-        for idx, item in enumerate(all_items, 1):
-            item.no = idx
+        # 4. 解析數量總表（如果有）
+        qty_items = []
+        if qty_doc:
+            logger.info(f"Parsing quantity summary: {qty_doc.filename}")
+            qty_parser = get_quantity_parser_service(vendor_id="habitus")
+            qty_items = await qty_parser.parse_quantity_summary(
+                qty_doc.file_path, qty_doc.id
+            )
+            logger.info(f"Parsed {len(qty_items)} quantity items")
 
-        # 4. 轉換為回應 DTO
+        # 5. 跨表合併（使用 skills 配置）
+        quotation_id = str(uuid.uuid4())
+        merge_service = get_merge_service()
+
+        merged_items, merge_report = merge_service.merge_documents(
+            quantity_summary_items=qty_items,
+            detail_boq_items=detail_boq_items,
+            quantity_summary_doc=qty_doc,
+            detail_spec_docs=detail_docs,
+            quotation_id=quotation_id,
+        )
+
+        logger.info(
+            f"Merge completed: {len(merged_items)} items, "
+            f"matched={merge_report.matched_items}, "
+            f"match_rate={merge_report.get_match_rate():.1%}"
+        )
+
+        # 6. 轉換為回應 DTO
         items_response = [
             BOQItemResponse.from_boq_item(item).model_dump()
-            for item in all_items
+            for item in merged_items
         ]
 
-        # 5. 統計資訊
+        # 7. 統計資訊
         statistics = {
-            "items_with_qty": sum(1 for item in all_items if item.qty is not None),
-            "items_with_photo": sum(1 for item in all_items if item.photo_base64),
+            "items_with_qty": sum(1 for item in merged_items if item.qty is not None),
+            "items_with_photo": sum(1 for item in merged_items if item.photo_base64),
             "total_images": total_images,
             "matched_images": matched_images,
-            "match_rate": round(matched_images / total_images, 2) if total_images > 0 else 0,
+            "image_match_rate": round(matched_images / total_images, 2) if total_images > 0 else 0,
+            "qty_match_rate": merge_report.get_match_rate(),
+            "matched_items": merge_report.matched_items,
+            "unmatched_items": merge_report.unmatched_items,
+            "warnings": merge_report.warnings[:5] if merge_report.warnings else [],
         }
 
         logger.info(
-            f"Process completed: {len(all_items)} items, "
-            f"{matched_images}/{total_images} images matched"
+            f"Process completed: {len(merged_items)} items, "
+            f"{matched_images}/{total_images} images matched, "
+            f"qty match rate: {merge_report.get_match_rate():.1%}"
         )
 
         return {
             "success": True,
-            "message": f"處理完成：{len(all_items)} 個項目",
+            "message": f"處理完成：{len(merged_items)} 個項目",
             "data": {
                 "items": items_response,
                 "total_items": len(items_response),
