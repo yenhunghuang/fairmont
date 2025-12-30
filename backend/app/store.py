@@ -10,6 +10,7 @@ from .models import (
     Quotation,
     ProcessingTask,
     ExtractedImage,
+    MergeReport,
 )
 from .utils import ErrorCode, raise_error
 
@@ -45,6 +46,10 @@ class InMemoryStore:
         # Store extracted images with TTL cache
         self.extracted_images: Dict[str, ExtractedImage] = {}
         self.image_cache = TTLCache(maxsize=500, ttl=cache_ttl)
+
+        # Store merge reports with TTL cache (2025-12-23 新增)
+        self.merge_reports: Dict[str, MergeReport] = {}
+        self.merge_report_cache = TTLCache(maxsize=50, ttl=cache_ttl)
 
         logger.info("InMemoryStore initialized")
 
@@ -357,6 +362,51 @@ class InMemoryStore:
         return [image for image in self.extracted_images.values()
                 if image.boq_item_id == item_id]
 
+    # ===== Merge Report Management (2025-12-23 新增) =====
+
+    def add_merge_report(self, report: MergeReport) -> None:
+        """
+        Add a merge report.
+
+        Args:
+            report: MergeReport to add
+        """
+        self.merge_reports[report.id] = report
+        self.merge_report_cache[report.id] = report
+        logger.info(f"Merge report added: {report.id}")
+
+    def get_merge_report(self, report_id: str) -> MergeReport:
+        """
+        Get a merge report by ID.
+
+        Args:
+            report_id: Merge report ID
+
+        Returns:
+            MergeReport
+
+        Raises:
+            APIError: If report not found
+        """
+        if report_id not in self.merge_reports:
+            raise_error(ErrorCode.RESOURCE_NOT_FOUND, "合併報告不存在", status_code=404)
+        return self.merge_reports[report_id]
+
+    def get_merge_report_by_quotation(self, quotation_id: str) -> Optional[MergeReport]:
+        """
+        Get merge report for a specific quotation.
+
+        Args:
+            quotation_id: Quotation ID
+
+        Returns:
+            MergeReport or None if not found
+        """
+        for report in self.merge_reports.values():
+            if report.quotation_id == quotation_id:
+                return report
+        return None
+
     # ===== Utility Methods =====
 
     def clear_expired(self) -> None:
@@ -377,6 +427,7 @@ class InMemoryStore:
             "quotations": len(self.quotations),
             "processing_tasks": len(self.processing_tasks),
             "extracted_images": len(self.extracted_images),
+            "merge_reports": len(self.merge_reports),
         }
 
 

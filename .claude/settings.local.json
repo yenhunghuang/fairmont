@@ -23,7 +23,14 @@
       "Bash(ls -la \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\backend\"\" | grep -E \"^d)",
       "Bash(requirements)",
       "Bash(setup:*)",
-      "Bash(ls -la \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\frontend\"\" | grep -E \"^d)"
+      "Bash(ls -la \"C:\\\\Users\\\\mdns-user\\\\POC\\\\Fairmont\\\\frontend\"\" | grep -E \"^d)",
+      "Bash(git checkout:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(find:*)",
+      "Bash(git log:*)",
+      "Bash(ls:*)",
+      "Bash(git push:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

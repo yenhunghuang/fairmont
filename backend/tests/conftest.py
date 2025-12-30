@@ -112,9 +112,8 @@ def sample_quotation_data():
     }
 
 
-@pytest.mark.asyncio
 @pytest.fixture
-async def sample_processing_task():
+def sample_processing_task():
     """Sample processing task for testing."""
     from app.models import ProcessingTask
 
@@ -124,3 +123,91 @@ async def sample_processing_task():
         message="等待處理",
         document_id="test-doc-id",
     )
+
+
+# ============================================================================
+# 跨表合併相關 fixtures (2025-12-23 新增)
+# ============================================================================
+
+
+@pytest.fixture
+def sample_quantity_summary_doc_data():
+    """Sample quantity summary document data for merge testing."""
+    return {
+        "filename": "Bay Tower Furniture - Overall Qty.pdf",
+        "file_path": "/tmp/uploads/qty-summary.pdf",
+        "file_size": 1024000,
+        "document_type": "boq",
+        "document_role": "quantity_summary",
+        "upload_order": 0,
+    }
+
+
+@pytest.fixture
+def sample_detail_spec_doc_data():
+    """Sample detail spec document data for merge testing."""
+    return {
+        "filename": "Casegoods & Seatings.pdf",
+        "file_path": "/tmp/uploads/detail-spec-1.pdf",
+        "file_size": 2048000,
+        "document_type": "boq",
+        "document_role": "detail_spec",
+        "upload_order": 1,
+    }
+
+
+@pytest.fixture
+def sample_quantity_summary_items():
+    """Sample quantity summary items for merge testing."""
+    return [
+        {"item_no_raw": "DLX-100", "item_no_normalized": "DLX-100", "total_qty": 239.0},
+        {"item_no_raw": "DLX-101", "item_no_normalized": "DLX-101", "total_qty": 248.0},
+        {"item_no_raw": "DLX.102", "item_no_normalized": "DLX-102", "total_qty": 150.0},
+        {"item_no_raw": "STD 200", "item_no_normalized": "STD-200", "total_qty": 100.0},
+    ]
+
+
+@pytest.fixture
+def sample_boq_items_for_merge():
+    """Sample BOQ items for merge testing."""
+    return [
+        {
+            "no": 1,
+            "item_no": "DLX-100",
+            "description": "King Bed",
+            "dimension": "1930 x 2130 x 290 H",
+            "qty": 100.0,  # Will be overridden by quantity summary
+            "uom": "ea",
+            "source_document_id": "detail-doc-1",
+            "source_page": 1,
+        },
+        {
+            "no": 2,
+            "item_no": "DLX-101",
+            "description": "Bedside Table",
+            "dimension": "600 x 500 x 550 H",
+            "qty": 50.0,  # Will be overridden by quantity summary
+            "uom": "ea",
+            "source_document_id": "detail-doc-1",
+            "source_page": 2,
+        },
+        {
+            "no": 3,
+            "item_no": "NEW-001",  # Not in quantity summary
+            "description": "New Item",
+            "dimension": "300 x 300 x 300 H",
+            "qty": 10.0,
+            "uom": "ea",
+            "source_document_id": "detail-doc-1",
+            "source_page": 3,
+        },
+    ]
+
+
+@pytest.fixture
+def sample_merge_request_data():
+    """Sample merge request data for API testing."""
+    return {
+        "document_ids": ["doc-qty-summary", "doc-detail-1", "doc-detail-2"],
+        "title": "Bay Tower 報價單",
+    }

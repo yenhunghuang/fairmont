@@ -12,9 +12,14 @@ class ProcessingTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="任務 ID (UUID)")
 
     # 任務類型
-    task_type: Literal["parse_pdf", "extract_images", "generate_excel", "analyze_floor_plan"] = Field(
-        ..., description="任務類型"
-    )
+    task_type: Literal[
+        "parse_pdf",
+        "extract_images",
+        "generate_excel",
+        "analyze_floor_plan",
+        "merge_documents",  # 跨表合併任務
+        "parse_quantity_summary",  # 解析數量總表
+    ] = Field(..., description="任務類型")
 
     # 狀態
     status: Literal["pending", "processing", "completed", "failed"] = Field(

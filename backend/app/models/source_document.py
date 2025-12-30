@@ -6,6 +6,13 @@ from datetime import datetime
 import uuid
 
 
+# 文件角色類型定義
+DocumentRole = Literal["quantity_summary", "detail_spec", "floor_plan", "unknown"]
+
+# 角色偵測方式
+RoleDetectionMethod = Literal["filename", "manual", "content"]
+
+
 class SourceDocument(BaseModel):
     """來源文件資料模型."""
 
@@ -35,12 +42,26 @@ class SourceDocument(BaseModel):
     extracted_items_count: int = Field(0, ge=0, description="提取的項目數")
     extracted_images_count: int = Field(0, ge=0, description="提取的圖片數")
 
+    # 專案資訊 (從 PDF 標題頁提取)
+    project_name: Optional[str] = Field(None, description="專案名稱 (如 SOLAIRE BAY TOWER)")
+
     # 時間戳記
     uploaded_at: datetime = Field(default_factory=datetime.now)
     processed_at: Optional[datetime] = Field(None, description="處理完成時間")
 
     # Gemini API 相關
     gemini_file_uri: Optional[str] = Field(None, description="Gemini File API URI")
+
+    # 跨表合併欄位 (2025-12-23 新增)
+    document_role: DocumentRole = Field(
+        "unknown", description="文件角色（數量總表/明細規格表/平面圖）"
+    )
+    upload_order: int = Field(
+        0, ge=0, description="上傳順序（用於多明細表合併優先順序）"
+    )
+    role_detected_by: RoleDetectionMethod = Field(
+        "filename", description="角色偵測方式"
+    )
 
     class Config:
         """Pydantic configuration."""

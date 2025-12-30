@@ -7,7 +7,7 @@ K: Total CBM (公式), L: Note, M: Location, N: Materials Used / Specs, O: Brand
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from datetime import datetime
 import uuid
 
@@ -44,8 +44,25 @@ class BOQItem(BaseModel):
         "boq", description="資料來源類型（內部使用）"
     )
     qty_verified: bool = Field(False, description="數量是否已核對（內部使用）")
-    qty_source: Optional[Literal["boq", "floor_plan"]] = Field(
+    qty_source: Optional[Literal["boq", "floor_plan", "quantity_summary"]] = Field(
         None, description="數量資料來源（內部使用）"
+    )
+
+    # 跨表合併追蹤欄位 (2025-12-23 新增)
+    item_no_normalized: Optional[str] = Field(
+        None, description="標準化後的 Item No.（用於跨表配對）"
+    )
+    source_files: List[str] = Field(
+        default_factory=list, description="來源文件 ID 列表（多來源時記錄所有來源）"
+    )
+    merge_status: Optional[Literal["matched", "unmatched", "quantity_only"]] = Field(
+        None, description="合併狀態"
+    )
+    qty_from_summary: bool = Field(
+        False, description="數量是否來自數量總表"
+    )
+    image_selected_from: Optional[str] = Field(
+        None, description="圖片選自哪個來源文件 ID"
     )
 
     # 時間戳記（內部使用）

@@ -1,21 +1,54 @@
 """Upload API routes with auto-parsing."""
 
+import asyncio
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Depends, Query, HTTPException
-from fastapi.responses import FileResponse
-from datetime import datetime
-import uuid
 
-from ...models import SourceDocument, ProcessingTask, APIResponse
-from ...api.dependencies import get_store_dependency, get_file_manager, get_file_validator, validate_pdf_files
-from ...services.pdf_parser import get_pdf_parser
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
+
+from ...api.dependencies import (
+    get_file_manager,
+    get_file_validator,
+    get_store_dependency,
+    validate_pdf_files,
+)
+from ...models import APIResponse, ProcessingTask, SourceDocument
 from ...services.image_extractor import get_image_extractor
 from ...services.image_matcher_deterministic import get_deterministic_image_matcher
+from ...services.document_role_detector import get_document_role_detector_service
+from ...services.pdf_parser import get_pdf_parser
 from ...store import InMemoryStore
-from ...utils import log_error, FileManager, FileValidator
+from ...utils import FileManager, FileValidator, log_error
 
 logger = logging.getLogger(__name__)
+
+# Gemini API 並發控制：限制同時解析的 PDF 數量，避免 API 限流
+_parsing_semaphore = asyncio.Semaphore(2)
+
+
+def _detect_document_type_from_filename(filename: str) -> str:
+    """從檔名偵測文件類型.
+
+    Args:
+        filename: PDF 檔名
+
+    Returns:
+        文件類型識別碼（furniture_specification, fabric_specification, quantity_summary）
+    """
+    filename_lower = filename.lower()
+
+    # 家具類：Casegoods, Seating, Lighting
+    if any(kw in filename_lower for kw in ["casegoods", "seating", "lighting"]):
+        return "furniture_specification"
+    # 面料類：Fabric, Leather, Vinyl
+    elif any(kw in filename_lower for kw in ["fabric", "leather", "vinyl"]):
+        return "fabric_specification"
+    # 數量總表：Qty, Overall, Summary, Quantity
+    elif any(kw in filename_lower for kw in ["qty", "overall", "summary", "quantity"]):
+        return "quantity_summary"
+
+    # 預設為家具明細
+    return "furniture_specification"
 
 router = APIRouter(prefix="/api/v1", tags=["Upload"])
 
@@ -28,7 +61,7 @@ router = APIRouter(prefix="/api/v1", tags=["Upload"])
 )
 async def upload_files(
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     extract_images: bool = Query(True, description="是否提取圖片"),
     store: InMemoryStore = Depends(get_store_dependency),
     file_manager: FileManager = Depends(get_file_manager),
@@ -49,10 +82,16 @@ async def upload_files(
         documents = []
         parse_tasks = []
 
-        for filename, content in validated_files:
+        # Get document role detector service
+        role_detector = get_document_role_detector_service()
+
+        for upload_order, (filename, content) in enumerate(validated_files):
             try:
                 # Save file
                 file_path = file_manager.save_upload_file(content, filename)
+
+                # Detect document role from filename
+                document_role, role_detected_by = role_detector.detect_role(filename)
 
                 # Create document record
                 doc = SourceDocument(
@@ -61,6 +100,9 @@ async def upload_files(
                     file_size=len(content),
                     document_type="unknown",  # Will be detected during parsing
                     parse_status="pending",
+                    document_role=document_role,
+                    upload_order=upload_order,
+                    role_detected_by=role_detected_by,
                 )
 
                 # Store document
@@ -73,7 +115,33 @@ async def upload_files(
                     doc.total_pages = page_count
                     store.update_document(doc)
 
-                    # 自動建立並啟動解析任務
+                    # 數量總表跳過 BOQ 解析（會在合併時由 quantity_parser 處理）
+                    if document_role == "quantity_summary":
+                        doc.parse_status = "completed"
+                        doc.parse_message = "數量總表，跳過 BOQ 解析"
+                        store.update_document(doc)
+                        logger.info(f"Skipping BOQ parsing for quantity summary: {filename}")
+
+                        # 建立一個已完成的假任務供前端追蹤
+                        task = ProcessingTask(
+                            task_type="parse_pdf",
+                            status="completed",
+                            message="數量總表已就緒",
+                            document_id=doc.id,
+                            progress=100,
+                        )
+                        store.add_task(task)
+
+                        parse_tasks.append({
+                            "document_id": doc.id,
+                            "task_id": task.task_id,
+                            "status": task.status,
+                        })
+                        # 數量總表也要加入 documents 列表！
+                        documents.append(doc.model_dump())
+                        continue
+
+                    # 自動建立並啟動解析任務（僅限明細規格表）
                     task = ProcessingTask(
                         task_type="parse_pdf",
                         status="pending",
@@ -128,9 +196,21 @@ async def _parse_pdf_background(
     task_id: str,
     store: InMemoryStore,
     extract_images: bool = True,
-    target_categories: Optional[List[str]] = None,
+    target_categories: list[str] | None = None,
 ) -> None:
     """背景任務：PDF 解析."""
+    async with _parsing_semaphore:
+        await _do_parse_pdf(document_id, task_id, store, extract_images, target_categories)
+
+
+async def _do_parse_pdf(
+    document_id: str,
+    task_id: str,
+    store: InMemoryStore,
+    extract_images: bool = True,
+    target_categories: list[str] | None = None,
+) -> None:
+    """實際執行 PDF 解析邏輯."""
     try:
         # Get task and update status
         task = store.get_task(task_id)
@@ -144,12 +224,16 @@ async def _parse_pdf_background(
 
         # Parse PDF with Gemini
         parser = get_pdf_parser()
-        boq_items, image_paths = await parser.parse_boq_with_gemini(
+        boq_items, image_paths, project_metadata = await parser.parse_boq_with_gemini(
             file_path=document.file_path,
             document_id=document_id,
             extract_images=extract_images,
             target_categories=target_categories,
         )
+
+        # Store project metadata in document
+        if project_metadata:
+            document.project_name = project_metadata.get("project_name")
 
         task.update_progress(70, "正在提取圖片...")
 
@@ -167,14 +251,23 @@ async def _parse_pdf_background(
             if images_with_bytes and boq_items:
                 task.update_progress(75, "正在匹配圖片到項目...")
 
+                # Detect document type from filename for page offset configuration
+                document_type = _detect_document_type_from_filename(document.filename)
+
                 # Use deterministic algorithm: match based on page location + image size
-                # Rule-based approach: items on page N → images on page N+1, select largest image
+                # Rule-based approach: items on page N → images on page N+offset, select largest image
                 # Automatically excludes logos/icons (small area) and selects product samples
-                matcher = get_deterministic_image_matcher()
+                matcher = get_deterministic_image_matcher(vendor_id="habitus")
+                page_offset = matcher.get_page_offset(document_type)
+
+                logger.info(
+                    f"Image matching: document_type={document_type}, page_offset={page_offset}"
+                )
+
                 image_to_item_map = await matcher.match_images_to_items(
                     images_with_bytes,
                     boq_items,
-                    target_page_offset=1,
+                    target_page_offset=page_offset,
                 )
 
                 # Apply matches - convert to Base64 and assign to items
