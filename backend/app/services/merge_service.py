@@ -1,11 +1,13 @@
 """跨表合併服務.
 
 將數量總表與多份明細規格表進行合併，產出統一的 BOQ 項目列表。
+支援從 MergeRulesSkill 載入合併規則配置。
 """
 
 import logging
+import re
 import time
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 
 from ..models.boq_item import BOQItem
@@ -15,11 +17,17 @@ from ..models.source_document import SourceDocument
 from .item_normalizer import get_item_normalizer_service
 from .image_selector import get_image_selector_service
 
+if TYPE_CHECKING:
+    from .skill_loader import SkillLoaderService, MergeRulesSkill, VendorSkill
+
 logger = logging.getLogger(__name__)
 
 
-# 可合併的欄位清單（除圖片外）
-MERGEABLE_FIELDS = [
+# ============================================================
+# Fallback 預設值（當 Skill 載入失敗時使用）
+# ============================================================
+
+DEFAULT_MERGEABLE_FIELDS = [
     "description",
     "dimension",
     "uom",
@@ -30,27 +38,118 @@ MERGEABLE_FIELDS = [
     "brand",
 ]
 
+DEFAULT_ERROR_MULTIPLE_QTY = "上傳多份數量總表，請僅保留一份"
+DEFAULT_ERROR_NO_DETAIL = "未上傳明細規格表，無法進行合併"
+
 
 class MergeService:
-    """跨表合併服務."""
+    """跨表合併服務.
 
-    # 單例模式
-    _instance: Optional["MergeService"] = None
+    支援從 MergeRulesSkill 載入合併規則配置，使用 Constructor Injection。
+    """
 
-    def __new__(cls) -> "MergeService":
-        """確保單例模式."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+    def __init__(
+        self,
+        skill_loader: Optional["SkillLoaderService"] = None,
+        vendor_id: str = "habitus",
+    ):
+        """初始化服務.
 
-    def __init__(self):
-        """初始化服務."""
-        if self._initialized:
-            return
-        self._initialized = True
+        Args:
+            skill_loader: SkillLoaderService 實例，None 時使用全域單例
+            vendor_id: 供應商 ID（用於載入面料偵測規則）
+        """
+        self._skill_loader = skill_loader
+        self._vendor_id = vendor_id
+        self._merge_rules: Optional["MergeRulesSkill"] = None
+        self._vendor_skill: Optional["VendorSkill"] = None
+        self._rules_loaded = False
+        self._vendor_loaded = False
         self.item_normalizer = get_item_normalizer_service()
         self.image_selector = get_image_selector_service()
+
+    def _ensure_skill_loaded(self) -> None:
+        """確保 MergeRulesSkill 已載入（懶載入）."""
+        if self._rules_loaded:
+            return
+
+        if self._skill_loader is None:
+            from .skill_loader import get_skill_loader
+            self._skill_loader = get_skill_loader()
+
+        self._merge_rules = self._skill_loader.load_merge_rules_or_default("merge-rules")
+        self._rules_loaded = True
+
+    def _ensure_vendor_loaded(self) -> None:
+        """確保 VendorSkill 已載入（懶載入）."""
+        if self._vendor_loaded:
+            return
+
+        if self._skill_loader is None:
+            from .skill_loader import get_skill_loader
+            self._skill_loader = get_skill_loader()
+
+        self._vendor_skill = self._skill_loader.load_vendor_or_default(self._vendor_id)
+        self._vendor_loaded = True
+
+    @property
+    def mergeable_fields(self) -> list[str]:
+        """取得可合併欄位列表."""
+        self._ensure_skill_loaded()
+        if self._merge_rules:
+            fields = self._merge_rules.mergeable_fields
+            if fields:
+                return fields
+        return DEFAULT_MERGEABLE_FIELDS
+
+    def _get_error_message_multiple_qty(self) -> str:
+        """取得多份數量總表錯誤訊息."""
+        self._ensure_skill_loaded()
+        if self._merge_rules:
+            return self._merge_rules.constraints.error_message_multiple_qty
+        return DEFAULT_ERROR_MULTIPLE_QTY
+
+    def _get_error_message_no_detail(self) -> str:
+        """取得無明細規格表錯誤訊息."""
+        self._ensure_skill_loaded()
+        if self._merge_rules:
+            return self._merge_rules.constraints.error_message_no_detail
+        return DEFAULT_ERROR_NO_DETAIL
+
+    def _get_field_strategy(self, field: str) -> dict:
+        """取得欄位合併策略.
+
+        Args:
+            field: 欄位名稱
+
+        Returns:
+            策略配置（包含 mode, separator 等）
+        """
+        self._ensure_skill_loaded()
+        default_strategy = {"mode": "fill_empty", "separator": ""}
+
+        if not self._merge_rules:
+            return default_strategy
+
+        strategies = self._merge_rules.field_merge.strategies
+        if not strategies:
+            return default_strategy
+
+        # 嘗試取得欄位特定策略
+        strategy = None
+        if field in strategies:
+            strategy = strategies[field]
+        elif "default" in strategies:
+            strategy = strategies["default"]
+
+        if strategy is None:
+            return default_strategy
+
+        # 轉換 FieldMergeStrategy 為 dict
+        return {
+            "mode": strategy.mode,
+            "separator": strategy.separator,
+        }
 
     def merge_documents(
         self,
@@ -203,6 +302,9 @@ class MergeService:
                     f"Item No. '{original_item_no}' 僅在數量總表中，無對應明細規格"
                 )
 
+        # 排序：面料跟隨對應家具
+        merged_items = self._sort_items_fabric_follows_furniture(merged_items)
+
         # 重新編號
         for idx, item in enumerate(merged_items, start=1):
             item.no = idx
@@ -228,8 +330,8 @@ class MergeService:
         合併來自不同明細規格表的同一項目.
 
         規則：
-        1. 先上傳的 PDF 非空欄位優先
-        2. 若先上傳為空、後上傳有值，則取後上傳值
+        1. fill_empty 模式：先上傳的 PDF 非空欄位優先，空值填補
+        2. concatenate 模式：合併所有非空值（用於 location、note）
         3. 圖片選擇解析度較高者
 
         Args:
@@ -259,25 +361,51 @@ class MergeService:
                 (base_doc.id if base_doc else "unknown", merged.photo_base64)
             )
 
+        # 為 concatenate 模式預先收集所有值
+        concatenate_values: Dict[str, List[str]] = {}
+        for field in self.mergeable_fields:
+            strategy = self._get_field_strategy(field)
+            if strategy["mode"] == "concatenate":
+                concatenate_values[field] = []
+                # 收集基礎項目的值
+                base_value = getattr(merged, field)
+                if base_value:
+                    concatenate_values[field].append(str(base_value))
+
         # 合併後續項目
         for item, doc in sorted_items[1:]:
             if doc:
                 merged.source_files.append(doc.id)
 
             # 合併可合併欄位
-            for field in MERGEABLE_FIELDS:
+            for field in self.mergeable_fields:
+                strategy = self._get_field_strategy(field)
                 merged_value = getattr(merged, field)
                 item_value = getattr(item, field)
 
-                # 若基礎為空且當前有值，則採用當前值
-                if merged_value is None and item_value is not None:
-                    setattr(merged, field, item_value)
+                if strategy["mode"] == "concatenate":
+                    # 收集非空值（稍後統一合併）
+                    if item_value:
+                        concatenate_values[field].append(str(item_value))
+                else:
+                    # fill_empty 模式：若基礎為空且當前有值，則採用當前值
+                    if merged_value is None and item_value is not None:
+                        setattr(merged, field, item_value)
 
             # 收集圖片
             if item.photo_base64:
                 images_for_selection.append(
                     (doc.id if doc else "unknown", item.photo_base64)
                 )
+
+        # 應用 concatenate 模式的合併結果
+        for field, values in concatenate_values.items():
+            if values:
+                strategy = self._get_field_strategy(field)
+                separator = strategy.get("separator", ", ")
+                # 去除重複值，保持順序
+                unique_values = list(dict.fromkeys(values))
+                setattr(merged, field, separator.join(unique_values))
 
         # 選擇最高解析度圖片
         if images_for_selection:
@@ -289,6 +417,125 @@ class MergeService:
                 merged.image_selected_from = best_image.source_id
 
         return merged
+
+    def _get_fabric_detection_pattern(self) -> str:
+        """取得面料偵測正規表達式（從 VendorSkill 載入）."""
+        self._ensure_vendor_loaded()
+        if self._vendor_skill:
+            return self._vendor_skill.fabric_detection.pattern
+        return r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)"
+
+    def _parse_fabric_targets(self, description: Optional[str]) -> List[str]:
+        """
+        從 description 解析面料對應的所有目標家具 item_no.
+
+        格式範例:
+        - "Vinyl to DLX-100" -> ["DLX-100"]
+        - "Fabric to DLX-100 and to DLX-200" -> ["DLX-100", "DLX-200"]
+
+        Args:
+            description: 項目描述
+
+        Returns:
+            目標家具 item_no 列表（已正規化），若非面料則返回空列表
+        """
+        if not description:
+            return []
+
+        pattern = self._get_fabric_detection_pattern()
+        matches = re.findall(pattern, description, re.IGNORECASE)
+        if matches:
+            return [self.item_normalizer.normalize(m) for m in matches]
+        return []
+
+    def _sort_items_fabric_follows_furniture(
+        self, items: List[BOQItem]
+    ) -> List[BOQItem]:
+        """
+        排序項目：面料跟隨對應家具.
+
+        規則：
+        1. 所有家具按 item_no 排序
+        2. 面料項目插入到其引用的每個家具之後（面料可重複出現）
+        3. 孤立面料（所有目標家具都不存在）放到最後
+
+        Args:
+            items: 合併後的 BOQItem 列表
+
+        Returns:
+            排序後的 BOQItem 列表（面料可能重複出現）
+        """
+        if not items:
+            return items
+
+        # 建立索引
+        fabric_targets: Dict[str, List[str]] = {}  # fabric normalized_id -> [furniture normalized_ids]
+        furniture_fabrics: Dict[str, List[BOQItem]] = {}  # furniture normalized_id -> [fabric items]
+        all_items_by_id: Dict[str, BOQItem] = {}  # normalized_id -> item
+
+        for item in items:
+            normalized_id = item.item_no_normalized or self.item_normalizer.normalize(item.item_no)
+            all_items_by_id[normalized_id] = item
+
+            # 檢查是否為面料項目（可能引用多個家具）
+            targets = self._parse_fabric_targets(item.description)
+            if targets:
+                fabric_targets[normalized_id] = targets
+                # 將面料加入每個目標家具的列表
+                for target in targets:
+                    if target not in furniture_fabrics:
+                        furniture_fabrics[target] = []
+                    furniture_fabrics[target].append(item)
+
+        # 識別家具項目（非面料）
+        fabric_items_set = set(fabric_targets.keys())
+        furniture_ids: List[str] = [
+            nid for nid in all_items_by_id.keys()
+            if nid not in fabric_items_set
+        ]
+
+        # 所有家具按 item_no 排序
+        furniture_ids.sort()
+
+        # 組合結果：家具 + 對應面料（面料可重複出現在多個家具後）
+        sorted_items: List[BOQItem] = []
+
+        for furniture_id in furniture_ids:
+            # 加入家具
+            sorted_items.append(all_items_by_id[furniture_id])
+
+            # 加入該家具對應的面料（按 item_no 排序，允許重複）
+            fabrics = furniture_fabrics.get(furniture_id, [])
+            if fabrics:
+                fabrics_sorted = sorted(
+                    fabrics,
+                    key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
+                )
+                sorted_items.extend(fabrics_sorted)
+
+        # 處理孤立的面料項目（所有目標家具都不存在）
+        matched_fabric_ids: set = set()
+        for furniture_id in furniture_ids:
+            for fabric in furniture_fabrics.get(furniture_id, []):
+                fabric_id = fabric.item_no_normalized or self.item_normalizer.normalize(fabric.item_no)
+                matched_fabric_ids.add(fabric_id)
+
+        orphan_fabrics = [
+            all_items_by_id[fid] for fid in fabric_targets.keys()
+            if fid not in matched_fabric_ids
+        ]
+        orphan_fabrics.sort(
+            key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
+        )
+        sorted_items.extend(orphan_fabrics)
+
+        logger.debug(
+            f"Item sorting: {len(furniture_ids)} furniture, "
+            f"{len(orphan_fabrics)} orphan fabrics, "
+            f"{len(sorted_items)} total (including duplicates)"
+        )
+
+        return sorted_items
 
     def validate_merge_request(
         self, documents: List[SourceDocument]
@@ -311,7 +558,7 @@ class MergeService:
         if len(quantity_summary_docs) > 1:
             return (
                 False,
-                "上傳多份數量總表，請僅保留一份",
+                self._get_error_message_multiple_qty(),
                 None,
                 [],
             )
@@ -320,7 +567,7 @@ class MergeService:
         if not detail_spec_docs:
             return (
                 False,
-                "未上傳明細規格表，無法進行合併",
+                self._get_error_message_no_detail(),
                 None,
                 [],
             )
@@ -335,12 +582,26 @@ class MergeService:
         return True, None, qty_summary_doc, detail_spec_docs_sorted
 
 
-# 工廠函式
-def get_merge_service() -> MergeService:
+# ============================================================
+# 單例工廠
+# ============================================================
+
+_merge_service_instance: Optional[MergeService] = None
+
+
+def get_merge_service(
+    skill_loader: Optional["SkillLoaderService"] = None,
+) -> MergeService:
     """
     取得 MergeService 單例實例.
+
+    Args:
+        skill_loader: 可選的 SkillLoaderService 實例
 
     Returns:
         MergeService 實例
     """
-    return MergeService()
+    global _merge_service_instance
+    if _merge_service_instance is None:
+        _merge_service_instance = MergeService(skill_loader)
+    return _merge_service_instance

@@ -313,41 +313,11 @@ class ImageMergeConfig(BaseModel):
     fallback_order: list[str] = Field(default_factory=list, description="fallback 順序")
 
 
-class QuantityPriorityItem(BaseModel):
-    """數量優先順序項目."""
-
-    source: str = Field(..., description="來源")
-    description: str = Field("", description="說明")
-    verified: bool = Field(False, description="已驗證")
-
-
-class ConflictResolution(BaseModel):
-    """衝突解決策略."""
-
-    strategy: str = Field("use_priority", description="策略")
-    log_warning: bool = Field(True, description="記錄警告")
-
-
-class QuantityMergeConfig(BaseModel):
-    """數量合併配置."""
-
-    priority: list[QuantityPriorityItem] = Field(default_factory=list, description="優先順序")
-    conflict_resolution: ConflictResolution = Field(default_factory=ConflictResolution)
-
-
-class NormalizationStep(BaseModel):
-    """正規化步驟."""
-
-    action: str = Field(..., description="動作")
-    description: str = Field("", description="說明")
-    target: Optional[str] = Field(None, description="目標")
-    replace: list[str] = Field(default_factory=list, description="替換列表")
 
 
 class ItemNoNormalizationConfig(BaseModel):
-    """Item No. 正規化配置."""
+    """Item No. 正規化配置（邏輯硬編碼，僅保留警告開關）."""
 
-    steps: list[NormalizationStep] = Field(default_factory=list, description="正規化步驟")
     warn_on_format_difference: bool = Field(True, description="格式差異警告")
 
 
@@ -383,14 +353,27 @@ class ReportConfig(BaseModel):
     warnings: WarningTemplates = Field(default_factory=WarningTemplates)
 
 
+class FabricDetectionConfig(BaseModel):
+    """面料偵測配置（放在 VendorSkill 中，供應商特定）."""
+
+    pattern: str = Field(
+        r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)",
+        description="從 description 提取目標家具 item_no 的正規表達式（支援含 . 的編號）"
+    )
+    description: str = Field("", description="說明")
+
+
 class MergeRulesSkill(BaseModel):
-    """合併規則 Skill 完整配置."""
+    """合併規則 Skill 完整配置.
+
+    注意：排序邏輯（fabric_follows_furniture）硬編碼於 merge_service.py
+    面料偵測 Pattern 配置於 VendorSkill.fabric_detection
+    """
 
     rules: RulesInfo
     role_detection: RoleDetectionRulesConfig = Field(default_factory=RoleDetectionRulesConfig)
     field_merge: FieldMergeConfig = Field(default_factory=FieldMergeConfig)
     image_merge: ImageMergeConfig = Field(default_factory=ImageMergeConfig)
-    quantity_merge: QuantityMergeConfig = Field(default_factory=QuantityMergeConfig)
     item_no_normalization: ItemNoNormalizationConfig = Field(default_factory=ItemNoNormalizationConfig)
     constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
     report: ReportConfig = Field(default_factory=ReportConfig)
@@ -406,6 +389,23 @@ class MergeRulesSkill(BaseModel):
         return self.field_merge.mergeable_fields
 
 
+class DimensionFormattingConfig(BaseModel):
+    """Dimension 格式化配置."""
+
+    fabric_keywords: list[str] = Field(
+        default=["fabric", "leather", "textile", "upholstery", "vinyl", "面料", "皮革", "布料"],
+        description="面料相關關鍵字（用於判斷 is_fabric）"
+    )
+    circular_keywords: list[str] = Field(
+        default=["dia", "dia.", "diameter", "ø", "Ø"],
+        description="圓形家具關鍵字（用於判斷 is_circular）"
+    )
+    fabric_format_prefixes: list[str] = Field(
+        default=["vinyl", "fabric", "leather", "textile"],
+        description="完整面料格式的開頭前綴（用於早期返回）"
+    )
+
+
 class VendorSkill(BaseModel):
     """供應商 Skill 完整配置."""
 
@@ -414,6 +414,8 @@ class VendorSkill(BaseModel):
     image_extraction: ImageExtractionConfig = Field(default_factory=ImageExtractionConfig)
     field_extraction: dict[str, Any] = Field(default_factory=dict)
     role_detection: RoleDetectionConfig = Field(default_factory=RoleDetectionConfig)
+    dimension_formatting: DimensionFormattingConfig = Field(default_factory=DimensionFormattingConfig)
+    fabric_detection: FabricDetectionConfig = Field(default_factory=FabricDetectionConfig)
     prompts: PromptsConfig = Field(default_factory=PromptsConfig)
 
     @property
