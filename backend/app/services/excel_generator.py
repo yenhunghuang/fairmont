@@ -5,15 +5,17 @@
 - 欄位標題 (row 16)
 - 資料列 (row 17+)
 - 條款 footer
+
+支援從 OutputFormatSkill 載入格式配置，並提供 fallback 預設值。
 """
 
 import base64
 import logging
 import uuid
 from datetime import datetime
-from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, TYPE_CHECKING
 
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
@@ -26,28 +28,92 @@ from ..config import settings
 from ..models import BOQItem, Quotation
 from ..utils import ErrorCode, FileManager, raise_error
 from .dimension_formatter import get_dimension_formatter_service
+
+# Fallback 導入（當 Skill 載入失敗時使用）
 from .quotation_format import (
-    COLUMNS,
-    DATA_HEADER_ROW,
-    DATA_START_ROW,
-    FAIRMONT_COMPANY,
-    FAIRMONT_TERMS,
-    FAIRMONT_TERMS_HEADER,
-    HEADER_START_ROW,
+    COLUMNS as DEFAULT_COLUMNS,
+    DATA_HEADER_ROW as DEFAULT_DATA_HEADER_ROW,
+    DATA_START_ROW as DEFAULT_DATA_START_ROW,
+    FAIRMONT_COMPANY as DEFAULT_COMPANY,
+    FAIRMONT_TERMS as DEFAULT_TERMS,
+    FAIRMONT_TERMS_HEADER as DEFAULT_TERMS_HEADER,
 )
+
+if TYPE_CHECKING:
+    from .skill_loader import SkillLoaderService, OutputFormatSkill
 
 logger = logging.getLogger(__name__)
 
 
 class ExcelGeneratorService:
-    """Service for generating Excel quotations in Fairmont format."""
+    """Service for generating Excel quotations in Fairmont format.
 
-    def __init__(self):
-        """Initialize Excel generator service."""
+    支援從 OutputFormatSkill 載入格式配置，使用 Constructor Injection。
+    """
+
+    def __init__(self, skill_loader: Optional["SkillLoaderService"] = None):
+        """Initialize Excel generator service.
+
+        Args:
+            skill_loader: SkillLoaderService 實例，None 時使用全域單例
+        """
         self.file_manager = FileManager(
             temp_dir=settings.temp_dir_path,
             images_dir=settings.extracted_images_dir_path,
         )
+        self._skill_loader = skill_loader
+        self._output_format: Optional["OutputFormatSkill"] = None
+        self._format_loaded = False
+
+    def _ensure_skill_loaded(self) -> None:
+        """確保 Skill 已載入（懶載入）."""
+        if self._format_loaded:
+            return
+
+        if self._skill_loader is None:
+            from .skill_loader import get_skill_loader
+            self._skill_loader = get_skill_loader()
+
+        self._output_format = self._skill_loader.load_output_format_or_default("fairmont")
+        self._format_loaded = True
+
+    def _get_columns(self) -> list:
+        """取得欄位定義."""
+        self._ensure_skill_loaded()
+        if self._output_format and self._output_format.columns:
+            return [
+                (col.header, col.field, col.width, col.alignment)
+                for col in self._output_format.columns
+            ]
+        return DEFAULT_COLUMNS
+
+    def _get_data_header_row(self) -> int:
+        """取得欄位標題列."""
+        self._ensure_skill_loaded()
+        if self._output_format:
+            return self._output_format.data_header_row
+        return DEFAULT_DATA_HEADER_ROW
+
+    def _get_data_start_row(self) -> int:
+        """取得資料起始列."""
+        self._ensure_skill_loaded()
+        if self._output_format:
+            return self._output_format.data_start_row
+        return DEFAULT_DATA_START_ROW
+
+    def _get_company_info(self) -> dict:
+        """取得公司資訊."""
+        self._ensure_skill_loaded()
+        if self._output_format:
+            return self._output_format.company.model_dump()
+        return DEFAULT_COMPANY
+
+    def _get_terms(self) -> tuple[str, list[str]]:
+        """取得條款."""
+        self._ensure_skill_loaded()
+        if self._output_format:
+            return (self._output_format.terms.header, self._output_format.terms.items)
+        return (DEFAULT_TERMS_HEADER, DEFAULT_TERMS)
 
     def create_quotation_excel(
         self,
@@ -85,7 +151,7 @@ class ExcelGeneratorService:
             self._add_items_to_sheet(ws, quotation.items, include_photos, photo_height_cm)
 
             # 4. Write terms footer
-            footer_start_row = DATA_START_ROW + len(quotation.items) + 2
+            footer_start_row = self._get_data_start_row() + len(quotation.items) + 2
             self._write_terms_footer(ws, footer_start_row)
 
             # Generate filename and save
@@ -119,20 +185,21 @@ class ExcelGeneratorService:
         ws.cell(row=1, column=10, value="QUOTE").font = title_font
 
         # Row 5: Company address + Project Name
-        ws.cell(row=5, column=2, value=FAIRMONT_COMPANY["address"])
+        company = self._get_company_info()
+        ws.cell(row=5, column=2, value=company["address"])
         ws.cell(row=5, column=8, value="Project Name：")
         ws.cell(row=5, column=10, value=quotation.project_name or "")
 
         # Row 6: Phone
-        ws.cell(row=6, column=2, value=f"p {FAIRMONT_COMPANY['phone']}")
+        ws.cell(row=6, column=2, value=f"p {company['phone']}")
 
         # Row 7: Fax + RFQ #
-        ws.cell(row=7, column=2, value=f"f  {FAIRMONT_COMPANY['fax']}")
+        ws.cell(row=7, column=2, value=f"f  {company['fax']}")
         ws.cell(row=7, column=8, value="RFQ #：")
         ws.cell(row=7, column=10, value=quotation.title or "")
 
         # Row 8: Website + Date
-        ws.cell(row=8, column=2, value=FAIRMONT_COMPANY["website"])
+        ws.cell(row=8, column=2, value=company["website"])
         ws.cell(row=8, column=8, value="Date：")
         ws.cell(row=8, column=10, value=quote_date)
 
@@ -212,8 +279,10 @@ class ExcelGeneratorService:
         )
 
         # Add headers at row 16
-        for col_num, (header_text, _, excel_width, _) in enumerate(COLUMNS, 1):
-            cell = ws.cell(row=DATA_HEADER_ROW, column=col_num)
+        columns = self._get_columns()
+        data_header_row = self._get_data_header_row()
+        for col_num, (header_text, _, excel_width, _) in enumerate(columns, 1):
+            cell = ws.cell(row=data_header_row, column=col_num)
             cell.value = header_text
             cell.fill = header_fill
             cell.font = header_font
@@ -221,16 +290,18 @@ class ExcelGeneratorService:
             cell.border = thin_border
             ws.column_dimensions[get_column_letter(col_num)].width = excel_width
 
-        ws.row_dimensions[DATA_HEADER_ROW].height = 25
+        ws.row_dimensions[data_header_row].height = 25
 
     def _write_terms_footer(self, ws, start_row: int) -> None:
         """Write terms and remarks footer section."""
+        terms_header, terms_items = self._get_terms()
+
         # Terms header
-        ws.cell(row=start_row, column=1, value=FAIRMONT_TERMS_HEADER)
+        ws.cell(row=start_row, column=1, value=terms_header)
         ws.cell(row=start_row, column=1).font = Font(bold=True)
 
         # Add numbered terms
-        for i, term in enumerate(FAIRMONT_TERMS, 1):
+        for i, term in enumerate(terms_items, 1):
             ws.cell(row=start_row + 1 + i, column=1, value=str(i))
             ws.cell(row=start_row + 1 + i, column=2, value=term)
 
@@ -258,8 +329,9 @@ class ExcelGeneratorService:
         # Initialize dimension formatter
         dim_formatter = get_dimension_formatter_service()
 
+        data_start_row = self._get_data_start_row()
         for idx, item in enumerate(items):
-            row_num = DATA_START_ROW + idx  # Start from row 17
+            row_num = data_start_row + idx  # Start from row 17
 
             # A: NO.
             cell = ws.cell(row=row_num, column=1)
@@ -436,11 +508,13 @@ class ExcelGeneratorService:
             ws = wb.active
 
             # Check headers at row 16
-            expected_headers = [col[0] for col in COLUMNS]
-            actual_headers = [ws.cell(row=DATA_HEADER_ROW, column=i).value for i in range(1, 16)]
+            columns = self._get_columns()
+            data_header_row = self._get_data_header_row()
+            expected_headers = [col[0] for col in columns]
+            actual_headers = [ws.cell(row=data_header_row, column=i).value for i in range(1, 16)]
 
             if actual_headers != expected_headers:
-                logger.warning(f"Header mismatch at row {DATA_HEADER_ROW}")
+                logger.warning(f"Header mismatch at row {data_header_row}")
                 raise ValueError("Headers do not match Fairmont format")
 
             logger.info(f"Excel file validated: {file_path}")
@@ -454,7 +528,25 @@ class ExcelGeneratorService:
             )
 
 
-@lru_cache(maxsize=1)
-def get_excel_generator() -> ExcelGeneratorService:
-    """Get or create Excel generator instance (thread-safe via lru_cache)."""
-    return ExcelGeneratorService()
+# ============================================================
+# 單例工廠
+# ============================================================
+
+_excel_generator_instance: Optional[ExcelGeneratorService] = None
+
+
+def get_excel_generator(
+    skill_loader: Optional["SkillLoaderService"] = None,
+) -> ExcelGeneratorService:
+    """取得 ExcelGeneratorService 單例實例.
+
+    Args:
+        skill_loader: 可選的 SkillLoaderService 實例
+
+    Returns:
+        ExcelGeneratorService 實例
+    """
+    global _excel_generator_instance
+    if _excel_generator_instance is None:
+        _excel_generator_instance = ExcelGeneratorService(skill_loader)
+    return _excel_generator_instance

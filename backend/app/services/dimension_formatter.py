@@ -1,34 +1,26 @@
 """Dimension 格式化服務.
 
 根據項目類型（面料/家具）格式化 Dimension 欄位顯示。
+配置從 skills/vendors/habitus.yaml 的 dimension_formatting 區塊載入。
 """
 
 import logging
 import re
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, TYPE_CHECKING
 
 from ..models.boq_item import BOQItem
+
+if TYPE_CHECKING:
+    from .skill_loader import DimensionFormattingConfig
 
 logger = logging.getLogger(__name__)
 
 
-# 面料相關關鍵字
-FABRIC_KEYWORDS = [
-    "fabric",
-    "leather",
-    "textile",
-    "upholstery",
-    "面料",
-    "皮革",
-    "布料",
-]
-
-# 圓形家具關鍵字（在 dimension 中）
-CIRCULAR_KEYWORDS = ["dia", "dia.", "diameter", "ø", "Ø"]
-
-
 class DimensionFormatterService:
-    """Dimension 格式化服務."""
+    """Dimension 格式化服務.
+
+    配置從 skills/vendors/habitus.yaml 載入，支援懶載入模式。
+    """
 
     # 單例模式
     _instance: Optional["DimensionFormatterService"] = None
@@ -45,6 +37,31 @@ class DimensionFormatterService:
         if self._initialized:
             return
         self._initialized = True
+        self._config: Optional["DimensionFormattingConfig"] = None
+
+    def _ensure_config_loaded(self) -> "DimensionFormattingConfig":
+        """確保配置已載入（懶載入）."""
+        if self._config is None:
+            from .skill_loader import get_skill_loader, DimensionFormattingConfig
+            loader = get_skill_loader()
+            skill = loader.load_vendor_or_default("habitus")
+            self._config = skill.dimension_formatting if skill else DimensionFormattingConfig()
+        return self._config
+
+    @property
+    def fabric_keywords(self) -> list[str]:
+        """取得面料關鍵字列表."""
+        return self._ensure_config_loaded().fabric_keywords
+
+    @property
+    def circular_keywords(self) -> list[str]:
+        """取得圓形家具關鍵字列表."""
+        return self._ensure_config_loaded().circular_keywords
+
+    @property
+    def fabric_format_prefixes(self) -> list[str]:
+        """取得面料格式前綴列表."""
+        return self._ensure_config_loaded().fabric_format_prefixes
 
     def format_dimension(self, item: BOQItem) -> str:
         """
@@ -63,6 +80,12 @@ class DimensionFormatterService:
                 return self._format_fabric_dimension(item)
             return ""
 
+        # 0. 先檢查 dimension 是否已是完整面料格式（以材料類型開頭）
+        dim_lower = item.dimension.lower()
+        if any(dim_lower.startswith(prefix) for prefix in self.fabric_format_prefixes):
+            # dimension 已是完整面料格式，直接返回
+            return item.dimension
+
         # 1. 判斷是否為面料
         if self.is_fabric(item):
             return self._format_fabric_dimension(item)
@@ -78,10 +101,12 @@ class DimensionFormatterService:
         """
         判斷項目是否為面料.
 
-        根據以下條件判斷：
-        1. source_document_id 對應的檔案名稱含 fabric/leather
-        2. description 含面料關鍵字
-        3. category 為 fabric/leather 類型
+        根據以下條件判斷（優先級順序）：
+        1. category 為明確的家具類型 → 返回 False（不是面料）
+        2. category 為 fabric/leather/vinyl 類型 → 返回 True
+        3. description 含面料關鍵字（如 "Fabric to", "Vinyl to"）
+
+        注意：不檢查 materials_specs，因為家具的搭配材料也可能包含 fabric 關鍵字。
 
         Args:
             item: BOQItem 項目
@@ -89,24 +114,25 @@ class DimensionFormatterService:
         Returns:
             是否為面料
         """
-        # 檢查 description
-        if item.description:
-            desc_lower = item.description.lower()
-            for keyword in FABRIC_KEYWORDS:
-                if keyword.lower() in desc_lower:
-                    return True
-
-        # 檢查 category（如果有）
+        # 1. 優先檢查 category（如果有）
         if hasattr(item, "category") and item.category:
             cat_lower = item.category.lower()
-            if "fabric" in cat_lower or "leather" in cat_lower:
+            # 明確的家具類型 → 不是面料
+            furniture_categories = ["seating", "casegoods", "lighting", "furniture"]
+            if any(fc in cat_lower for fc in furniture_categories):
+                return False
+            # 明確的面料類型 → 是面料
+            if "fabric" in cat_lower or "leather" in cat_lower or "vinyl" in cat_lower:
                 return True
 
-        # 檢查 materials_specs（通常面料會有材質說明）
-        if item.materials_specs:
-            specs_lower = item.materials_specs.lower()
-            for keyword in FABRIC_KEYWORDS:
-                if keyword.lower() in specs_lower:
+        # 2. 檢查 description 是否含面料關鍵字（如 "Fabric to", "Vinyl to"）
+        if item.description:
+            desc_lower = item.description.lower()
+            # 面料的 description 格式通常是 "<類型> to <家具編號>"
+            for keyword in self.fabric_keywords:
+                keyword_lower = keyword.lower()
+                # 檢查是否以面料關鍵字開頭（如 "Fabric to...", "Vinyl to..."）
+                if desc_lower.startswith(keyword_lower):
                     return True
 
         return False
@@ -116,19 +142,26 @@ class DimensionFormatterService:
         格式化面料的 Dimension.
 
         規則：
-        - 描述含 "repeat" → "pattern"
-        - 描述不含 "repeat" → "plain"
+        - 如果 item.dimension 已有完整格式（含材料類型），直接返回
+        - 否則根據 repeat 判斷返回 "pattern" 或 "plain"
 
         Args:
             item: BOQItem 項目
 
         Returns:
-            "pattern" 或 "plain"
+            完整的 dimension 字串，如 "Vinyl-Morbern Europe-Prodigy PRO-682-Lt Neutral-137cmW plain"
         """
+        # 如果 dimension 已有完整格式（含材料類型-Vendor-Pattern-Color-Width），直接返回
+        if item.dimension:
+            dim_lower = item.dimension.lower()
+            # 檢查是否已是完整格式（以材料類型開頭）
+            if any(dim_lower.startswith(prefix) for prefix in self.fabric_format_prefixes):
+                return item.dimension
+
+        # Fallback: 只有 "pattern" 或 "plain"
         desc = (item.description or "").lower()
         materials = (item.materials_specs or "").lower()
 
-        # 檢查 description 和 materials_specs 是否含 repeat
         if "repeat" in desc or "repeat" in materials:
             return "pattern"
 
@@ -148,7 +181,7 @@ class DimensionFormatterService:
             return False
 
         dim_lower = dimension.lower()
-        for keyword in CIRCULAR_KEYWORDS:
+        for keyword in self.circular_keywords:
             if keyword in dim_lower:
                 return True
 
@@ -283,24 +316,16 @@ class DimensionFormatterService:
             if not dim3:
                 dim3 = numbers[2]
 
-        # 格式化輸出
-        parts = []
-        if dim1:
-            parts.append(str(dim1))
-        if dim2:
-            parts.append(str(dim2))
-        if dim3:
-            parts.append(str(dim3))
+        # 格式化輸出：統一為 W × D × H 格式，不滿三個用 null 填充，不加單位
+        w_val = dim1 if dim1 else "null"
+        d_val = dim2 if dim2 else "null"
+        h_val = dim3 if dim3 else "null"
 
-        if len(parts) >= 3:
-            return f"{parts[0]} × {parts[1]} × {parts[2]}"
-        elif len(parts) == 2:
-            return f"{parts[0]} × {parts[1]}"
-        elif len(parts) == 1:
-            return parts[0]
-        else:
-            # 無法解析，返回原始值
+        # 如果完全無法解析（三個都是 null），返回原始值
+        if w_val == "null" and d_val == "null" and h_val == "null":
             return dimension
+
+        return f"{w_val} × {d_val} × {h_val}"
 
 
 # 工廠函式

@@ -234,20 +234,24 @@ class TestDocumentRoleDetectorService:
     class TestSingleton:
         """單例模式測試."""
 
-        def test_singleton_instance(self):
-            """測試單例模式返回相同實例."""
-            service1 = DocumentRoleDetectorService()
-            service2 = DocumentRoleDetectorService()
-            assert service1 is service2
-
-        def test_factory_function(self):
-            """測試工廠函式返回單例."""
+        def test_factory_function_returns_singleton(self):
+            """測試工廠函式返回相同單例實例."""
             service1 = get_document_role_detector_service()
             service2 = get_document_role_detector_service()
             assert service1 is service2
 
-        def test_factory_same_as_direct_instantiation(self):
-            """測試工廠函式與直接實例化返回相同實例."""
+        def test_direct_instantiation_creates_new_instance(self):
+            """測試直接實例化建立新實例（用於測試注入）."""
             service1 = DocumentRoleDetectorService()
-            service2 = get_document_role_detector_service()
-            assert service1 is service2
+            service2 = DocumentRoleDetectorService()
+            # 直接實例化應建立新實例，支援依賴注入測試
+            assert service1 is not service2
+
+        def test_factory_accepts_skill_loader_parameter(self):
+            """測試工廠函式支援 skill_loader 參數."""
+            from unittest.mock import MagicMock
+            mock_loader = MagicMock()
+            # 第一次呼叫會使用傳入的 skill_loader 建立實例
+            # 注意：因為已有全域實例，此測試主要驗證參數簽名正確
+            service = get_document_role_detector_service(skill_loader=mock_loader)
+            assert service is not None

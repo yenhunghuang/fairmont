@@ -199,8 +199,8 @@ async def _merge_documents_background(
             task.update_progress(20, "正在解析數量總表...")
             store.update_task(task)
 
-            # 解析數量總表
-            qty_parser = get_quantity_parser_service()
+            # 解析數量總表（使用 habitus vendor skill）
+            qty_parser = get_quantity_parser_service(vendor_id="habitus")
             qty_items = await qty_parser.parse_quantity_summary(
                 qty_doc.file_path, qty_doc.id
             )

@@ -18,110 +18,6 @@ from .observability import get_observability, TraceMetadata
 logger = logging.getLogger(__name__)
 
 
-# ============================================================
-# Default Prompts (Fallback when Skill config unavailable)
-# ============================================================
-
-DEFAULT_BOQ_PROMPT_TEMPLATE = """
-請分析以下 PDF 內容，提取出家具報價單（BOQ）中的所有項目。
-
-{categories_instruction}
-
-**重要解析原則**：
-- 每個規格頁只提取「主要項目」，忽略附屬的面料、配件、五金等
-- 主要項目判斷依據：
-  * 有獨立的 ITEM NO. 編號
-  * 在規格頁標題或 ITEM 欄位中明確標示
-  * 不是作為主項目的材質說明（如 "FURNITURE COM:" 區塊內的面料）
-- 如果一個規格頁同時出現家具和其使用的面料，只提取家具本身
-- 面料類項目只有在「獨立的面料規格頁」才需要提取（如 Fabric & Leather 文件）
-
-針對每個項目，請按照以下 JSON 格式提取（對應惠而蒙格式 15 欄）：
-
-```json
-[
-  {{
-    "source_page": 項目所在的頁碼 (1-indexed),
-    "category": "項目類別 (furniture 或 fabric)",
-    "item_no": "項目編號 (B欄: Item no.)",
-    "description": "項目描述 (C欄: Description)",
-    "dimension": "尺寸 WxDxH mm (E欄: Dimension) - 僅家具類需填寫",
-    "qty": 數量或 null (F欄: Qty),
-    "uom": "單位 (G欄: UOM) - 使用標準值如 ea, m, set",
-    "unit_cbm": 單位材積或 null (J欄: Unit CBM),
-    "note": null,
-    "location": "位置/區域 (M欄: Location)",
-    "materials_specs": "材料/規格說明 (N欄: Materials Used / Specs)",
-    "brand": "品牌或 null (O欄: Brand)"
-  }}
-]
-```
-
-欄位說明：
-- source_page: 項目在 PDF 中的頁碼，必須根據文本中的 "--- Page N ---" 標記來判斷
-- category: 項目類別，根據以下規則判斷：
-  * "furniture" - 家具類：Casegoods、Seating、Lighting、桌椅櫃等實體家具
-  * "fabric" - 面料類：Fabric、Leather、Vinyl、布料皮革等軟裝材料
-  * 判斷依據：檔案名稱、ITEM 欄位內容（如 "Fabric @..." 開頭則為 fabric）
-- item_no: 項目編號，如 "DLX-100"、"FUR-001"（注意：如果編號中有 @ 符號，只取 @ 之前的部分作為 item_no）
-- description: 品名描述（**依 category 不同格式**）
-  * **furniture 類別**：直接使用品名，如 "King Bed"、"Executive Chair"
-  * **fabric 類別**：格式為 "<材料類型> to <關聯家具編號>"
-    - 從 ITEM 欄位的 "@" 後面提取關聯的家具編號
-    - 範例："Vinyl to DLX-100"、"Fabric to DLX-200, DLX-201"
-- dimension: 尺寸/規格（**重要：依 category 不同處理**）
-  * **furniture 類別**：格式為 "寬 x 深 x 高" mm，如 "1930 x 2130 x 290 H"
-  * **fabric 類別**：格式為 "<Vendor>-<Pattern>-<Color>-<Width> <plain/pattern>"
-    - 範例："Morbern Europe-Prodigy PRO 682-Lt Neutral-137cmW plain"
-- qty: 數量，數字或 null
-- uom: 單位（使用標準值：ea, set, m, roll, L, kg, sqm）
-  * 家具類 → 通常是 "ea" 或 "set"
-  * 面料類 → 可能是 "m" 或 "ea"
-- unit_cbm: 單位材積（立方公尺），數字或 null
-- note: 暫不處理，固定填 null
-- location: **重要** 位置/區域提取規則：
-  * 解析順序：先看詳細規格區取得家具資料，再查 Index 找到對應的 Location
-  * 從 Index 中查找此 Item No. 出現的所有 "@XX" 地點
-  * 如果有多個地點，用逗號分隔合併成一欄，如 "King DLX (A/B), End King, Grand King"
-  * 如果沒有找到 @ 符號，location 填 null
-  * 位置名稱簡寫規則：
-    - "King Deluxe Room Type A" + "King Deluxe Room Type B" → "King DLX (A/B)"
-    - "Standard Room Type A" + "Standard Room Type B" → "Standard (A/B)"
-    - "Grand King Room Type A" + "Grand King Room Type B" → "Grand King (A/B)"
-    - "End King" 保持原樣
-  * 面料類 (Fabric/Leather): 從 Item No. 欄位提取 "@XX" 後面的部分
-- materials_specs: 使用材料/規格，如 "Vinyl: DLX-500 Taupe"
-- brand: 只填寫明確標示的品牌名稱（如 "Fairmont"、"Herman Miller"）。注意：MFR、材料代碼、規格編號都不是品牌，請留 null
-
-PDF 內容：
-{pdf_content}
-
-請只返回 JSON 數組，不要包含其他文本。如果無法提取有效項目，返回空數組 []。
-"""
-
-DEFAULT_PROJECT_METADATA_PROMPT = """
-請分析以下 PDF 內容，提取專案名稱。
-
-請按照以下 JSON 格式返回：
-
-```json
-{{
-  "project_name": "專案名稱"
-}}
-```
-
-說明：
-- project_name: 專案名稱，通常在文件標題或 "Project Name:" 後面，例如 "SOLAIRE BAY TOWER"
-
-如果找不到，請填入 null。
-
-PDF 內容：
-{pdf_content}
-
-請只返回 JSON 對象，不要包含其他文本。
-"""
-
-
 class PDFParserService:
     """Service for parsing PDFs and extracting BOQ items using Gemini AI."""
 
@@ -157,41 +53,35 @@ class PDFParserService:
             self.model = None
 
     def _load_skill_config(self, vendor_id: str) -> None:
-        """Load prompts from Skill config.
+        """Load prompts from Skill config (required for POC).
 
-        Falls back to default prompts if loading fails.
+        Raises:
+            ValueError: If skill config cannot be loaded.
         """
-        try:
-            from .skill_loader import get_skill_loader
+        from .skill_loader import get_skill_loader
 
-            loader = get_skill_loader()
-            self._skill = loader.load_vendor_or_default(vendor_id)
-
-            if self._skill is not None:
-                self._prompts_loaded = True
-                logger.info(f"Loaded Skill prompts for vendor: {vendor_id}")
-            else:
-                logger.warning(f"Skill config not found for {vendor_id}, using default prompts")
-
-        except Exception as e:
-            logger.warning(f"Failed to load Skill config: {e}, using default prompts")
-            self._skill = None
+        loader = get_skill_loader()
+        self._skill = loader.load_vendor(vendor_id)
+        self._prompts_loaded = True
+        logger.info(f"Loaded Skill prompts for vendor: {vendor_id}")
 
     def _get_boq_prompt_template(self) -> str:
-        """Get BOQ extraction prompt template (from Skill or default)."""
-        if self._skill is not None and self._prompts_loaded:
-            template = self._skill.prompts.parse_specification.user_template
-            if template:
-                return template
-        return DEFAULT_BOQ_PROMPT_TEMPLATE
+        """Get BOQ extraction prompt template from Skill."""
+        if not self._prompts_loaded or self._skill is None:
+            raise ValueError("Skill not loaded. POC requires habitus skill.")
+        template = self._skill.prompts.parse_specification.user_template
+        if not template:
+            raise ValueError("BOQ prompt template not found in skill config.")
+        return template
 
     def _get_project_metadata_prompt_template(self) -> str:
-        """Get project metadata prompt template (from Skill or default)."""
-        if self._skill is not None and self._prompts_loaded:
-            template = self._skill.prompts.parse_project_metadata.user_template
-            if template:
-                return template
-        return DEFAULT_PROJECT_METADATA_PROMPT
+        """Get project metadata prompt template from Skill."""
+        if not self._prompts_loaded or self._skill is None:
+            raise ValueError("Skill not loaded. POC requires habitus skill.")
+        template = self._skill.prompts.parse_project_metadata.user_template
+        if not template:
+            raise ValueError("Project metadata prompt template not found in skill config.")
+        return template
 
     def _get_boq_system_prompt(self) -> Optional[str]:
         """Get BOQ extraction system prompt (from Skill or None)."""
@@ -772,13 +662,12 @@ class PDFParserService:
 _parser_instance: Optional[PDFParserService] = None
 
 
-def get_pdf_parser(vendor_id: Optional[str] = None) -> PDFParserService:
+def get_pdf_parser(vendor_id: Optional[str] = "habitus") -> PDFParserService:
     """Get or create PDF parser instance.
 
     Args:
-        vendor_id: Optional vendor ID for Skill-based prompts.
-                   If provided, creates a new instance with vendor config.
-                   If None, returns/creates default instance.
+        vendor_id: Vendor ID for Skill-based prompts.
+                   Defaults to "habitus" to load vendor skill configuration.
 
     Returns:
         PDFParserService instance
@@ -789,7 +678,7 @@ def get_pdf_parser(vendor_id: Optional[str] = None) -> PDFParserService:
     if vendor_id is not None:
         return PDFParserService(vendor_id=vendor_id)
 
-    # Otherwise, return default singleton
+    # Otherwise, return default singleton (with habitus skill)
     if _parser_instance is None:
-        _parser_instance = PDFParserService()
+        _parser_instance = PDFParserService(vendor_id="habitus")
     return _parser_instance

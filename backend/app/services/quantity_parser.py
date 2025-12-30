@@ -21,43 +21,6 @@ from .observability import get_observability, TraceMetadata
 logger = logging.getLogger(__name__)
 
 
-# ============================================================
-# Default Prompt (Fallback when Skill config unavailable)
-# ============================================================
-
-DEFAULT_QUANTITY_SUMMARY_PROMPT = """請解析這份「數量總表」PDF，只需要提取以下資訊：
-
-1. **CODE / Item No. / 項目編號**: 項目的唯一識別碼（例如：DLX-100, STD-200）
-2. **TOTAL QTY / 總數量**: 該項目的總數量
-
-**輸出格式**：請以 JSON 陣列格式輸出，每個項目包含：
-- `item_no`: 項目編號（字串）
-- `qty`: 總數量（數字）
-- `page`: 來源頁碼（數字，若無法確定填 null）
-
-**重要規則**：
-- 忽略表頭列
-- 忽略小計、合計、總計等列
-- 忽略空白列
-- 數量請處理千分位逗號（例如：1,234 → 1234）
-- 只輸出 JSON，不要其他說明文字
-
-**輸出範例**：
-```json
-[
-  {"item_no": "DLX-100", "qty": 239, "page": 1},
-  {"item_no": "DLX-101", "qty": 248, "page": 1},
-  {"item_no": "STD-200", "qty": 100, "page": 2}
-]
-```
-
-PDF 內容：
-{pdf_content}
-
-請開始解析：
-"""
-
-
 class QuantityParserService:
     """數量總表解析服務."""
 
@@ -86,33 +49,26 @@ class QuantityParserService:
             logger.warning("Gemini API key not configured")
 
     def _load_skill_config(self, vendor_id: str) -> None:
-        """Load prompts from Skill config.
+        """Load prompts from Skill config (required for POC).
 
-        Falls back to default prompts if loading fails.
+        Raises:
+            ValueError: If skill config cannot be loaded.
         """
-        try:
-            from .skill_loader import get_skill_loader
+        from .skill_loader import get_skill_loader
 
-            loader = get_skill_loader()
-            self._skill = loader.load_vendor_or_default(vendor_id)
-
-            if self._skill is not None:
-                self._prompts_loaded = True
-                logger.info(f"Loaded Skill prompts for quantity parser: {vendor_id}")
-            else:
-                logger.warning(f"Skill config not found for {vendor_id}, using default prompts")
-
-        except Exception as e:
-            logger.warning(f"Failed to load Skill config: {e}, using default prompts")
-            self._skill = None
+        loader = get_skill_loader()
+        self._skill = loader.load_vendor(vendor_id)
+        self._prompts_loaded = True
+        logger.info(f"Loaded Skill prompts for quantity parser: {vendor_id}")
 
     def _get_quantity_prompt_template(self) -> str:
-        """Get quantity summary prompt template (from Skill or default)."""
-        if self._skill is not None and self._prompts_loaded:
-            template = self._skill.prompts.parse_quantity_summary.user_template
-            if template:
-                return template
-        return DEFAULT_QUANTITY_SUMMARY_PROMPT
+        """Get quantity summary prompt template from Skill."""
+        if not self._prompts_loaded or self._skill is None:
+            raise ValueError("Skill not loaded. POC requires habitus skill.")
+        template = self._skill.prompts.parse_quantity_summary.user_template
+        if not template:
+            raise ValueError("Quantity summary prompt template not found in skill config.")
+        return template
 
     def _extract_text_from_pdf(self, file_path: str) -> str:
         """
@@ -351,14 +307,13 @@ _parser_instance: Optional[QuantityParserService] = None
 
 
 # 工廠函式
-def get_quantity_parser_service(vendor_id: Optional[str] = None) -> QuantityParserService:
+def get_quantity_parser_service(vendor_id: Optional[str] = "habitus") -> QuantityParserService:
     """
     取得 QuantityParserService 實例.
 
     Args:
-        vendor_id: Optional vendor ID for Skill-based prompts.
-                   If provided, creates a new instance with vendor config.
-                   If None, returns/creates default instance.
+        vendor_id: Vendor ID for Skill-based prompts.
+                   Defaults to "habitus" to load vendor skill configuration.
 
     Returns:
         QuantityParserService 實例
@@ -369,7 +324,7 @@ def get_quantity_parser_service(vendor_id: Optional[str] = None) -> QuantityPars
     if vendor_id is not None:
         return QuantityParserService(vendor_id=vendor_id)
 
-    # Otherwise, return default singleton
+    # Otherwise, return default singleton (with habitus skill)
     if _parser_instance is None:
-        _parser_instance = QuantityParserService()
+        _parser_instance = QuantityParserService(vendor_id="habitus")
     return _parser_instance

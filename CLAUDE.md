@@ -43,7 +43,7 @@ streamlit run app.py
 
 在專案根目錄建立 `.env`：
 - `GEMINI_API_KEY`: Google Gemini API 金鑰（必要）
-- `GEMINI_MODEL`: 模型名稱（預設 `gemini-2.0-flash-lite`）
+- `GEMINI_MODEL`: 模型名稱（預設 `gemini-3-flash-preview`）
 - `SKILLS_DIR`: Skills 配置目錄（預設 `skills/`）
 - `SKILLS_CACHE_ENABLED`: 快取開關（預設 `true`，開發時可設 `false`）
 
