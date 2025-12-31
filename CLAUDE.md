@@ -39,13 +39,37 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+### Docker 部署
+
+```bash
+# 啟動
+docker-compose up -d --build
+
+# 重啟（.env 變更後）
+docker-compose restart
+
+# 查看日誌
+docker-compose logs -f backend
+
+# 停止
+docker-compose down
+```
+
 ### 環境設定
 
 在專案根目錄建立 `.env`：
-- `GEMINI_API_KEY`: Google Gemini API 金鑰（必要）
-- `GEMINI_MODEL`: 模型名稱（預設 `gemini-3-flash-preview`）
-- `SKILLS_DIR`: Skills 配置目錄（預設 `skills/`）
-- `SKILLS_CACHE_ENABLED`: 快取開關（預設 `true`，開發時可設 `false`）
+
+| 變數 | 必填 | 預設值 | 說明 |
+|------|------|--------|------|
+| `GEMINI_API_KEY` | ✅ | - | Google Gemini API 金鑰 |
+| `GEMINI_MODEL` | ❌ | `gemini-3-flash-preview` | Gemini 模型 |
+| `GEMINI_TIMEOUT_SECONDS` | ❌ | `300` | API 呼叫超時（秒）|
+| `GEMINI_MAX_RETRIES` | ❌ | `2` | 失敗時重試次數 |
+| `API_KEY` | ✅ | - | Swagger UI 認證金鑰 |
+| `SKILLS_DIR` | ❌ | `skills/` | Skills 配置目錄 |
+| `SKILLS_CACHE_ENABLED` | ❌ | `true` | 快取開關（開發時設 `false`）|
+| `MAX_FILE_SIZE_MB` | ❌ | `50` | 單檔最大 MB |
+| `MAX_FILES` | ❌ | `5` | 單次最多檔案數 |
 
 **Langfuse 可觀測性**（選用）：`LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
 
@@ -53,7 +77,7 @@ streamlit run app.py
 
 - **測試優先**: 編寫測試 → 驗證失敗 → 實作 → 驗證通過
 - **覆蓋率**: >= 80%（關鍵路徑 100%）
-- **效能**: API < 200ms (p95)，PDF 解析 < 15 秒
+- **效能**: API < 200ms (p95)，PDF 解析 1-6 分鐘（含 Skills 載入 + Gemini AI）
 - **語言**: 錯誤訊息、文件使用繁體中文；程式碼可用英文
 - **Python 版本**: >= 3.11
 
@@ -62,8 +86,19 @@ streamlit run app.py
 ### 資料流程
 
 ```
-上傳 PDF → PDFParserService (Gemini AI) → BOQItem 列表 + 圖片匹配 → Excel 產出
+上傳 PDF → Skills 載入 → PDFParserService (Gemini AI) → BOQItem 列表 + 圖片匹配 → Excel 產出
 ```
+
+### 關鍵檔案
+
+| 檔案 | 用途 |
+|------|------|
+| `backend/app/api/routes/process.py` | 主要 API 端點（/process）|
+| `backend/app/services/pdf_parser.py` | Gemini AI 解析核心 |
+| `backend/app/services/merge_service.py` | 跨表合併與面料排序 |
+| `backend/app/services/skill_loader.py` | Skills YAML 配置載入 |
+| `backend/app/models/boq_item.py` | BOQItem 資料模型 |
+| `backend/app/store.py` | 記憶體儲存（InMemoryStore）|
 
 ### 關鍵架構模式
 
@@ -210,13 +245,30 @@ def get_my_service() -> MyService:
 
 ## API 端點
 
+### 主要端點（前端使用）
+
+```http
+POST /api/v1/process
+Authorization: Bearer <API_KEY>
+Content-Type: multipart/form-data
+```
+
+上傳 PDF → 直接返回 15 欄 JSON 陣列。處理時間約 1-6 分鐘，前端 timeout 建議 **360 秒以上**。
+
+| 參數 | 類型 | 說明 |
+|------|------|------|
+| files | File[] | PDF 檔案（最多 5 個，單檔 ≤ 50MB）|
+| extract_images | bool | 是否提取圖片（預設 true）|
+
+### 其他端點
+
 | 端點 | 方法 | 說明 |
 |------|------|------|
+| `/api/v1/health` | GET | 健康檢查 |
 | `/api/v1/documents` | POST | 上傳 PDF |
 | `/api/v1/documents/{id}/parse-result` | GET | 取得 BOQ 項目 |
 | `/api/v1/quotations` | POST | 建立報價單 |
 | `/api/v1/quotations/{id}/excel` | GET | 下載 Excel |
-| `/api/v1/quotations/merge` | POST | 合併多文件 |
 | `/api/v1/tasks/{id}` | GET | 查詢任務狀態 |
 
 ## 規格文件
@@ -224,6 +276,12 @@ def get_my_service() -> MyService:
 - 功能規格：`specs/001-furniture-quotation-system/spec.md`
 - 資料模型：`specs/001-furniture-quotation-system/data-model.md`
 - OpenAPI：`specs/001-furniture-quotation-system/contracts/openapi.yaml`
+
+## 開發提示
+
+- 開發時設定 `SKILLS_CACHE_ENABLED=false` 以即時載入 YAML 變更
+- 使用 `BACKEND_DEBUG=true` 啟用更詳細的日誌
+- Swagger UI：`http://localhost:8000/docs`（需輸入 API_KEY）
 
 ## 測試標記
 

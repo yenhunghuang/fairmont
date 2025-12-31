@@ -5,7 +5,7 @@ from .source_document import SourceDocument, DocumentRole, RoleDetectionMethod
 from .quotation import Quotation
 from .processing_task import ProcessingTask
 from .extracted_image import ExtractedImage
-from .responses import APIResponse, ErrorResponse, PaginatedResponse, BOQItemResponse
+from .responses import APIResponse, ErrorResponse, PaginatedResponse, BOQItemResponse, FairmontItemResponse
 from .merge_report import MergeReport, MergeResult, MergeStatus, FormatWarning
 from .quantity_summary import QuantitySummaryItem
 
@@ -21,6 +21,7 @@ __all__ = [
     "ErrorResponse",
     "PaginatedResponse",
     "BOQItemResponse",
+    "FairmontItemResponse",
     # 跨表合併相關 (2025-12-23 新增)
     "MergeReport",
     "MergeResult",

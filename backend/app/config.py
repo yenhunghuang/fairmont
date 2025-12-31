@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Gemini API Configuration
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash-lite"
-    gemini_timeout_seconds: int = 120  # API 呼叫超時（秒）
+    gemini_timeout_seconds: int = 300  # API 呼叫超時（5 分鐘）
     gemini_max_retries: int = 2  # 失敗時重試次數
 
     # Backend Configuration
@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"  # 或自架 LangFuse 伺服器
     langfuse_release: str = "1.0.0"  # 版本標記
+
+    # API Key Authentication
+    api_key: str = ""  # Bearer Token 認證用
 
     # Computed paths
     @property

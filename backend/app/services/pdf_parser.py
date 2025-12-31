@@ -287,13 +287,20 @@ class PDFParserService:
                 last_error = str(e)
                 logger.warning(f"Gemini API error for {document_id}: {e}")
 
-                # Retry on rate limit and transient errors
-                if "rate" in error_str or "504" in error_str or "deadline" in error_str:
-                    if attempt < max_retries:
-                        wait_time = 2 ** (attempt + 1)
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(wait_time)
-                        continue
+                # Retry on rate limit and transient errors (including 499 cancelled)
+                retryable = (
+                    "rate" in error_str
+                    or "504" in error_str
+                    or "499" in error_str
+                    or "cancelled" in error_str
+                    or "deadline" in error_str
+                    or "unavailable" in error_str
+                )
+                if retryable and attempt < max_retries:
+                    wait_time = 2 ** (attempt + 1)
+                    logger.info(f"Retrying in {wait_time} seconds due to transient error...")
+                    await asyncio.sleep(wait_time)
+                    continue
 
                 # Don't retry other errors
                 raise_error(ErrorCode.GEMINI_API_ERROR, f"Gemini 解析失敗：{str(e)}")

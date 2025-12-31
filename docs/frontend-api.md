@@ -22,44 +22,45 @@ Content-Type: multipart/form-data
 
 ### Response (200)
 
+直接返回 Fairmont 15 欄 JSON 陣列（無外層包裝）：
+
 ```json
-{
-  "success": true,
-  "message": "處理完成：50 個項目",
-  "data": {
-    "items": [
-      {
-        "id": "uuid",
-        "no": 1,
-        "item_no": "DLX-100",
-        "description": "King Bed",
-        "photo_base64": "data:image/png;base64,...",
-        "dimension": "1930 x 2130 x 290 H",
-        "qty": 239,
-        "uom": "ea",
-        "unit_cbm": 1.74,
-        "note": "Bed bases only",
-        "location": "King DLX",
-        "materials_specs": "Vinyl: DLX-500 Taupe",
-        "brand": "Fairmont",
-        "source_document_id": "doc-uuid",
-        "source_page": 1
-      }
-    ],
-    "total_items": 50,
-    "statistics": {
-      "items_with_qty": 48,
-      "items_with_photo": 45,
-      "total_images": 50,
-      "matched_images": 45,
-      "image_match_rate": 0.9,
-      "qty_match_rate": 0.96,
-      "matched_items": 48,
-      "unmatched_items": 2,
-      "warnings": []
-    }
+[
+  {
+    "no": 1,
+    "item_no": "DLX-101",
+    "description": "Custom Bed Bench",
+    "photo": "iVBORw0KGgo...",
+    "dimension": "1930 x 2130 x 290 H",
+    "qty": 248.0,
+    "uom": "ea",
+    "unit_rate": null,
+    "amount": null,
+    "unit_cbm": 1.74,
+    "total_cbm": null,
+    "note": "Bed bases only",
+    "location": "King DLX (A/B)",
+    "materials_specs": "Vinyl: DLX-500 Taupe",
+    "brand": "Fairmont"
+  },
+  {
+    "no": 2,
+    "item_no": "DLX-102",
+    "description": "King Bed",
+    "photo": "...",
+    "dimension": "2130 x 1930 x 450 H",
+    "qty": 120.0,
+    "uom": "ea",
+    "unit_rate": null,
+    "amount": null,
+    "unit_cbm": 2.15,
+    "total_cbm": null,
+    "note": null,
+    "location": "King Suite",
+    "materials_specs": "Fabric: COM Grade A",
+    "brand": null
   }
-}
+]
 ```
 
 ### Response - 失敗 (4xx/5xx)
@@ -71,6 +72,33 @@ Content-Type: multipart/form-data
   "error_code": "ERROR_CODE"
 }
 ```
+
+---
+
+## 15 欄 JSON 欄位說明
+
+| # | JSON 欄位 | Excel 欄位 | 類型 | 說明 |
+|---|-----------|------------|------|------|
+| 1 | no | A: NO. | int | 序號（系統自動產生）|
+| 2 | item_no | B: Item no. | string | 項目編號 |
+| 3 | description | C: Description | string | 品名描述 |
+| 4 | photo | D: Photo | string \| null | 圖片 Base64 |
+| 5 | dimension | E: Dimension | string \| null | 尺寸 WxDxH mm |
+| 6 | qty | F: Qty | float \| null | 數量 |
+| 7 | uom | G: UOM | string \| null | 單位 (ea/m/set) |
+| 8 | unit_rate | H: Unit Rate | null | 單價（留空，使用者填寫）|
+| 9 | amount | I: Amount | null | 金額（留空，使用者填寫）|
+| 10 | unit_cbm | J: Unit CBM | float \| null | 單位材積 |
+| 11 | total_cbm | K: Total CBM | null | 總材積（留空，前端公式 =qty×unit_cbm）|
+| 12 | note | L: Note | string \| null | 備註 |
+| 13 | location | M: Location | string \| null | 位置/區域 |
+| 14 | materials_specs | N: Materials | string \| null | 材料規格 |
+| 15 | brand | O: Brand | string \| null | 品牌 |
+
+**固定留空欄位**（使用者或公式填寫）：
+- `unit_rate` (H): 單價
+- `amount` (I): 金額
+- `total_cbm` (K): 總材積（公式 =qty × unit_cbm）
 
 ---
 
@@ -86,43 +114,23 @@ async function processPDFs(files) {
     body: formData
   });
 
-  const result = await res.json();
-
-  if (!result.success) {
-    throw new Error(result.message);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.message);
   }
 
-  return result.data.items; // 15 欄 JSON 陣列
+  // 直接返回 15 欄 JSON 陣列
+  return await res.json();
 }
 
 // 使用
 const items = await processPDFs([pdf1, pdf2]);
 console.log(items);
+// [
+//   { no: 1, item_no: "DLX-101", description: "...", photo: "...", ... },
+//   { no: 2, item_no: "DLX-102", ... }
+// ]
 ```
-
----
-
-## 15 欄 JSON 欄位說明
-
-| JSON 欄位 | Excel 欄位 | 類型 | 說明 |
-|-----------|------------|------|------|
-| no | A: NO. | int | 序號 |
-| item_no | B: Item no. | string | 項目編號 |
-| description | C: Description | string | 品名描述 |
-| photo_base64 | D: Photo | string | 圖片 Base64 |
-| dimension | E: Dimension | string | 尺寸 WxDxH mm |
-| qty | F: Qty | float | 數量 |
-| uom | G: UOM | string | 單位 (ea/m/set) |
-| unit_cbm | J: Unit CBM | float | 單位材積 |
-| note | L: Note | string | 備註 |
-| location | M: Location | string | 位置/區域 |
-| materials_specs | N: Materials | string | 材料規格 |
-| brand | O: Brand | string | 品牌 |
-
-**留空欄位**（用戶手動填寫）：
-- H: Unit Rate（單價）
-- I: Amount（金額）
-- K: Total CBM（公式：qty × unit_cbm）
 
 ---
 
@@ -147,8 +155,8 @@ console.log(items);
 
 | 項目 | 說明 |
 |------|------|
-| **請求時間** | 約 10-60 秒（視 PDF 頁數） |
-| **Timeout 建議** | 前端設定 120 秒以上 |
+| **請求時間** | 約 1-6 分鐘（視 PDF 頁數） |
+| **Timeout 建議** | 前端設定 **360 秒（6 分鐘）以上** |
 | **Loading 提示** | 建議顯示「處理中」狀態 |
 
 ---

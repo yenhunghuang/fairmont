@@ -123,3 +123,6 @@ backend/extracted_images/
 frontend/.streamlit/secrets.toml
 nul
 credentials/
+
+# Deployment scripts (may contain credentials)
+deploy*.py

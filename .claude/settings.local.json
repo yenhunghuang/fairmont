@@ -30,7 +30,13 @@
       "Bash(git log:*)",
       "Bash(ls:*)",
       "Bash(git push:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(echo:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(ping:*)",
+      "Bash(chcp)",
+      "Bash(cat:*)"
     ]
   }
 }

@@ -1,5 +1,5 @@
-FastAPI==0.104.1
-uvicorn[standard]==0.24.0
+FastAPI>=0.115.0
+uvicorn[standard]>=0.30.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 google-generativeai>=0.8.0

@@ -9,13 +9,13 @@ import logging
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Depends, Query
-from pydantic import BaseModel, Field
 
-from ...models import APIResponse, BOQItemResponse, SourceDocument
+from ...models import FairmontItemResponse, SourceDocument
 from ...api.dependencies import (
     get_store_dependency,
     get_file_manager,
     validate_pdf_files,
+    verify_api_key,
 )
 from ...services.pdf_parser import get_pdf_parser
 from ...services.image_extractor import get_image_extractor
@@ -29,14 +29,6 @@ from ...utils import FileManager, log_error
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["Process"])
-
-
-class ProcessResponse(BaseModel):
-    """處理結果回應."""
-
-    items: List[dict] = Field(..., description="BOQ 項目列表（15 欄）")
-    total_items: int = Field(..., description="總項目數")
-    statistics: dict = Field(..., description="統計資訊")
 
 
 def _detect_document_type_from_filename(filename: str) -> str:
@@ -55,9 +47,9 @@ def _detect_document_type_from_filename(filename: str) -> str:
 
 @router.post(
     "/process",
-    response_model=APIResponse,
+    response_model=List[FairmontItemResponse],
     status_code=200,
-    summary="上傳 PDF 並直接返回 JSON",
+    summary="上傳 PDF 並直接返回 Fairmont 15 欄 JSON",
 )
 async def process_pdfs(
     files: List[UploadFile] = File(..., description="PDF 檔案（最多 5 個，單檔 ≤ 50MB）"),
@@ -65,19 +57,22 @@ async def process_pdfs(
     extract_images: bool = Query(True, description="是否提取圖片"),
     store: InMemoryStore = Depends(get_store_dependency),
     file_manager: FileManager = Depends(get_file_manager),
-) -> dict:
+    api_key: str = Depends(verify_api_key),  # API Key 認證
+) -> List[dict]:
     """
-    上傳 PDF 檔案並直接返回 15 欄 JSON.
+    上傳 PDF 檔案並直接返回 Fairmont 15 欄 JSON 陣列.
 
     這是一個同步整合端點，將上傳、解析、合併全部在一個請求中完成。
     支援跨表合併：自動識別數量總表與明細規格表，執行合併與面料排序。
+
+    直接返回 items 陣列（無外層包裝），每個 item 完全符合 Fairmont Excel 15 欄格式。
 
     - **files**: PDF 檔案列表（最多 5 個，單檔最大 50MB）
     - **title**: 報價單標題（可選）
     - **extract_images**: 是否提取圖片（預設為 True）
 
-    **注意**: 此端點為同步操作，處理時間約 10-60 秒（視 PDF 頁數而定）。
-    前端應設定 timeout 為 120 秒以上。
+    **注意**: 此端點為同步操作，處理時間約 1-6 分鐘（視 PDF 頁數而定）。
+    前端應設定 timeout 為 360 秒（6 分鐘）以上。
     """
     try:
         # 1. 驗證檔案
@@ -210,40 +205,21 @@ async def process_pdfs(
             f"match_rate={merge_report.get_match_rate():.1%}"
         )
 
-        # 6. 轉換為回應 DTO
+        # 6. 轉換為 Fairmont 15 欄 DTO
         items_response = [
-            BOQItemResponse.from_boq_item(item).model_dump()
+            FairmontItemResponse.from_boq_item(item).model_dump()
             for item in merged_items
         ]
 
-        # 7. 統計資訊
-        statistics = {
-            "items_with_qty": sum(1 for item in merged_items if item.qty is not None),
-            "items_with_photo": sum(1 for item in merged_items if item.photo_base64),
-            "total_images": total_images,
-            "matched_images": matched_images,
-            "image_match_rate": round(matched_images / total_images, 2) if total_images > 0 else 0,
-            "qty_match_rate": merge_report.get_match_rate(),
-            "matched_items": merge_report.matched_items,
-            "unmatched_items": merge_report.unmatched_items,
-            "warnings": merge_report.warnings[:5] if merge_report.warnings else [],
-        }
-
+        # 7. 記錄統計資訊（僅供 log，不回傳）
         logger.info(
             f"Process completed: {len(merged_items)} items, "
             f"{matched_images}/{total_images} images matched, "
             f"qty match rate: {merge_report.get_match_rate():.1%}"
         )
 
-        return {
-            "success": True,
-            "message": f"處理完成：{len(merged_items)} 個項目",
-            "data": {
-                "items": items_response,
-                "total_items": len(items_response),
-                "statistics": statistics,
-            },
-        }
+        # 直接返回 items 陣列
+        return items_response
 
     except Exception as e:
         log_error(e, context="Process PDFs")
