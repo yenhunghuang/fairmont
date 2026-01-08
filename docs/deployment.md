@@ -122,7 +122,7 @@ Authorization: Bearer <your-api-key>
 | 變數 | 必填 | 預設值 | 說明 |
 |------|------|--------|------|
 | `GEMINI_API_KEY` | ✅ | - | Google Gemini API 金鑰 |
-| `GEMINI_MODEL` | ❌ | `gemini-2.0-flash-lite` | Gemini 模型 |
+| `GEMINI_MODEL` | ❌ | `gemini-3-flash-preview` | Gemini 模型 |
 | `GEMINI_TIMEOUT_SECONDS` | ❌ | `600` | API 呼叫超時（秒）|
 | `API_KEY` | ✅ | - | Bearer Token 認證金鑰 |
 | `MAX_FILE_SIZE_MB` | ❌ | `50` | 單檔最大 MB |
