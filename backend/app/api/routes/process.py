@@ -68,9 +68,10 @@ async def process_pdfs(
     - **project_name**: 專案名稱（從 PDF 的 PROJECT 標題提取）
     - **items**: Fairmont 17 欄項目列表
 
-    欄位說明：
-    - **category**: 分類（1=家具, 5=面料）
-    - **affiliate**: 附屬 - 面料來源的家具編號，多個用 ', ' 分隔；家具此欄位為 null
+    欄位說明（共 17 欄）：
+    - 前 15 欄（no ~ brand）：對應 Excel 輸出格式
+    - **category**: 分類（1=家具, 5=面料）— 用於關聯與排序
+    - **affiliate**: 附屬 - 面料來源的家具編號，多個用 ', ' 分隔 — 用於關聯與排序
 
     - **files**: PDF 檔案列表（最多 5 個，單檔最大 50MB）
     - **extract_images**: 是否提取圖片（預設為 True）

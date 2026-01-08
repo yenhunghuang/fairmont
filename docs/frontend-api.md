@@ -83,6 +83,10 @@ Content-Type: multipart/form-data
 
 ## 17 欄 JSON 欄位說明
 
+> **欄位用途**：
+> - 前 15 欄（no ~ brand）：對應 Excel 輸出格式
+> - 後 2 欄（category, affiliate）：用於關聯與排序，不輸出至 Excel
+
 ### 外層結構
 | 欄位 | 類型 | 說明 |
 |------|------|------|
@@ -107,8 +111,8 @@ Content-Type: multipart/form-data
 | 13 | location | M: Location | string \| null | 位置/區域 |
 | 14 | materials_specs | N: Materials | string \| null | 材料規格 |
 | 15 | brand | O: Brand | string \| null | 品牌 |
-| 16 | category | P: Category | int \| null | 分類（1=家具, 5=面料）|
-| 17 | affiliate | Q: Affiliate | string \| null | 附屬（面料來源的家具編號，多個用 `, ` 分隔）|
+| 16 | category | - | int \| null | 分類（1=家具, 5=面料）— 用於關聯與排序 |
+| 17 | affiliate | - | string \| null | 附屬（面料來源的家具編號，多個用 `, ` 分隔）— 用於關聯與排序 |
 
 **固定留空欄位**（使用者或公式填寫）：
 - `unit_rate` (H): 單價
