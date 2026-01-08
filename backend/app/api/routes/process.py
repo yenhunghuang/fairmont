@@ -49,7 +49,7 @@ def _detect_document_type_from_filename(filename: str) -> str:
     "/process",
     response_model=List[FairmontItemResponse],
     status_code=200,
-    summary="上傳 PDF 並直接返回 Fairmont 15 欄 JSON",
+    summary="上傳 PDF 並直接返回 Fairmont 17 欄 JSON",
 )
 async def process_pdfs(
     files: List[UploadFile] = File(..., description="PDF 檔案（最多 5 個，單檔 ≤ 50MB）"),
@@ -60,12 +60,16 @@ async def process_pdfs(
     api_key: str = Depends(verify_api_key),  # API Key 認證
 ) -> List[dict]:
     """
-    上傳 PDF 檔案並直接返回 Fairmont 15 欄 JSON 陣列.
+    上傳 PDF 檔案並直接返回 Fairmont 17 欄 JSON 陣列.
 
     這是一個同步整合端點，將上傳、解析、合併全部在一個請求中完成。
     支援跨表合併：自動識別數量總表與明細規格表，執行合併與面料排序。
 
-    直接返回 items 陣列（無外層包裝），每個 item 完全符合 Fairmont Excel 15 欄格式。
+    直接返回 items 陣列（無外層包裝），每個 item 完全符合 Fairmont Excel 格式。
+
+    欄位說明：
+    - **category**: 分類（1=家具, 5=面料）
+    - **affiliate**: 附屬 - 面料來源的家具編號，多個用 ', ' 分隔；家具此欄位為 null
 
     - **files**: PDF 檔案列表（最多 5 個，單檔最大 50MB）
     - **title**: 報價單標題（可選）

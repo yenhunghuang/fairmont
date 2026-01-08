@@ -527,19 +527,42 @@ class PDFParserService:
                     # This enables the deterministic image matching algorithm
                     source_page = self._parse_source_page(item_data.get("source_page"))
 
-                    # Parse and validate category
+                    # Parse and validate category (1=家具, 5=面料)
                     raw_category = item_data.get("category")
                     category = None
                     if raw_category and isinstance(raw_category, str):
                         cat_lower = raw_category.lower().strip()
-                        if cat_lower in ("furniture", "fabric"):
-                            category = cat_lower
+                        if cat_lower == "furniture":
+                            category = 1
+                        elif cat_lower == "fabric":
+                            category = 5
+
+                    # Extract affiliate (面料來源家具編號)
+                    # First, try to detect fabric from description pattern
+                    description = item_data.get("description", "")
+                    affiliate = self._extract_affiliate_from_description(description, category)
+
+                    # If category is not set but affiliate is found, it's fabric
+                    # If description contains "to DLX-" pattern, it's fabric
+                    if category is None and affiliate:
+                        category = 5
+                    elif category is None:
+                        # Try to detect fabric from description pattern even without explicit category
+                        import re
+                        fabric_pattern = r'\b(Vinyl|Fabric|Leather)\s+to\s+[A-Z]{2,4}-\d+'
+                        if re.search(fabric_pattern, description, re.IGNORECASE):
+                            category = 5
+                            affiliate = self._extract_affiliate_from_description(description, 5)
+                        else:
+                            # Default to furniture if no fabric pattern found
+                            category = 1
 
                     boq_item = BOQItem(
                         no=idx,
                         item_no=item_data.get("item_no", f"ITEM-{idx}"),
-                        description=item_data.get("description", ""),
+                        description=description,
                         category=category,
+                        affiliate=affiliate,
                         dimension=item_data.get("dimension"),
                         qty=self._parse_qty(item_data.get("qty")),
                         uom=item_data.get("uom"),  # LLM 自行判斷，不做硬編碼標準化
@@ -614,6 +637,51 @@ class PDFParserService:
         normalized = re.sub(r'\s+and\s+', ', ', location)
 
         return normalized.strip()
+
+    @staticmethod
+    def _extract_affiliate_from_description(
+        description: str, category: Optional[int]
+    ) -> Optional[str]:
+        """
+        Extract affiliate furniture item numbers from fabric description.
+
+        Only extracts for fabric items (category=5). Looks for patterns like:
+        - "Vinyl to DLX-100"
+        - "Fabric to DLX-100, DLX-101"
+        - "Leather to STD-200 and DLX-300"
+
+        Args:
+            description: Item description
+            category: Category (1=furniture, 5=fabric)
+
+        Returns:
+            Comma-separated furniture item numbers for fabric items, None for furniture
+        """
+        import re
+
+        # Only process fabric items (category=5)
+        if category != 5 or not description:
+            return None
+
+        # First, find the part after "to"
+        to_pattern = r'\bto\s+(.+)$'
+        to_match = re.search(to_pattern, description, re.IGNORECASE)
+
+        if not to_match:
+            return None
+
+        rest = to_match.group(1)
+
+        # Find all item_no patterns in the rest of the description
+        # Matches item_no format like: DLX-100, STD-200, DLX-100.1, DLX-100A, etc.
+        item_pattern = r'([A-Z]{2,4}-\d+(?:\.\d+)?(?:[A-Z])?)'
+        matches = re.findall(item_pattern, rest, re.IGNORECASE)
+
+        if matches:
+            # Normalize to uppercase and join with ', '
+            return ', '.join([m.upper() for m in matches])
+
+        return None
 
     @staticmethod
     def _parse_source_page(page_value: Any) -> Optional[int]:

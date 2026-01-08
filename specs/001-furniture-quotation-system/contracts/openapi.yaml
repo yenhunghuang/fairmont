@@ -706,10 +706,11 @@ components:
     BOQItem:
       type: object
       description: |
-        BOQ 項目資料模型（完全比照惠而蒙格式 15 欄）
+        BOQ 項目資料模型（17 欄，含分類與附屬）
         Excel 欄位: A:NO., B:Item no., C:Description, D:Photo, E:Dimension,
         F:Qty, G:UOM, H:Unit Rate(留空), I:Amount(留空), J:Unit CBM,
-        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand
+        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand,
+        P:Category, Q:Affiliate
       required:
         - id
         - item_no
@@ -806,6 +807,21 @@ components:
         image_selected_from:
           type: string
           description: 圖片選自哪個來源文件 ID
+          nullable: true
+        category:
+          type: integer
+          enum: [1, 5]
+          description: |
+            P 欄：分類
+            - 1: 家具 (Furniture)
+            - 5: 面料 (Fabric)
+          nullable: true
+        affiliate:
+          type: string
+          description: |
+            Q 欄：附屬 - 面料來源的家具編號
+            - 面料項目：對應的家具 Item No.，多個用 ', ' 分隔（如 DLX-100, DLX-101）
+            - 家具項目：null
           nullable: true
         created_at:
           type: string

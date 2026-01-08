@@ -114,12 +114,13 @@ class BOQItemResponse(BaseModel):
 
 class FairmontItemResponse(BaseModel):
     """
-    Fairmont Excel 15 欄 DTO.
+    Fairmont Excel 17 欄 DTO.
 
-    完全符合 Fairmont Excel 15 欄格式，供前端直接使用：
+    完全符合 Fairmont Excel 格式，供前端直接使用：
     - 移除內部欄位：id, source_document_id, source_page
     - 新增留空欄位：unit_rate, amount, total_cbm (皆為 null)
     - 欄位名稱：photo_base64 → photo
+    - 新增分類與附屬欄位 (2026-01-08)
     """
 
     no: int = Field(..., ge=1, description="A: 序號 (NO.)")
@@ -137,6 +138,8 @@ class FairmontItemResponse(BaseModel):
     location: Optional[str] = Field(None, description="M: 位置 (Location)")
     materials_specs: Optional[str] = Field(None, description="N: 材料規格 (Materials Used / Specs)")
     brand: Optional[str] = Field(None, description="O: 品牌 (Brand)")
+    category: Optional[int] = Field(None, description="P: 分類 (1=家具, 5=面料)")
+    affiliate: Optional[str] = Field(None, description="Q: 附屬 (面料來源的家具編號, 多個用 ', ' 分隔)")
 
     @classmethod
     def from_boq_item(cls, item: Any) -> "FairmontItemResponse":
@@ -157,6 +160,8 @@ class FairmontItemResponse(BaseModel):
             location=item.location,
             materials_specs=item.materials_specs,
             brand=item.brand,
+            category=getattr(item, 'category', None),
+            affiliate=getattr(item, 'affiliate', None),
         )
 
     class Config:
@@ -178,6 +183,8 @@ class FairmontItemResponse(BaseModel):
                 "location": "King DLX (A/B)",
                 "materials_specs": "Vinyl: DLX-500 Taupe",
                 "brand": "Fairmont",
+                "category": 1,
+                "affiliate": None,
             }
         }
 

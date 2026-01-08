@@ -65,6 +65,14 @@ class BOQItem(BaseModel):
         None, description="圖片選自哪個來源文件 ID"
     )
 
+    # 分類與附屬欄位 (2026-01-08 新增)
+    category: Optional[Literal[1, 5]] = Field(
+        None, description="分類: 1=家具(Furniture), 5=面料(Fabric)"
+    )
+    affiliate: Optional[str] = Field(
+        None, description="附屬: 面料來源的家具編號 (如 DLX-100, DLX-101), 多個用 ', ' 分隔; 家具留空"
+    )
+
     # 時間戳記（內部使用）
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
