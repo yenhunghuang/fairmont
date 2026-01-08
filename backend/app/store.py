@@ -1,7 +1,7 @@
 """In-memory store for documents, tasks, quotations, and images."""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from cachetools import TTLCache
 
 from .models import (
@@ -21,37 +21,41 @@ logger = logging.getLogger(__name__)
 class InMemoryStore:
     """In-memory storage for all application data."""
 
-    def __init__(self, cache_ttl: int = 3600):
+    def __init__(self, cache_ttl: int = 3600, cache_enabled: bool = True):
         """
         Initialize InMemoryStore.
 
         Args:
             cache_ttl: Cache time-to-live in seconds (default 1 hour)
+            cache_enabled: Whether to enable TTL cache (default True)
         """
-        # Store documents with TTL cache (auto-cleanup after cache_ttl)
+        self.cache_enabled = cache_enabled
+        self.cache_ttl = cache_ttl
+
+        # Store documents with optional TTL cache
         self.documents: Dict[str, SourceDocument] = {}
-        self.document_cache = TTLCache(maxsize=100, ttl=cache_ttl)
+        self.document_cache: Optional[TTLCache] = TTLCache(maxsize=100, ttl=cache_ttl) if cache_enabled else None
 
         # Store BOQ items
         self.boq_items: Dict[str, BOQItem] = {}
 
-        # Store quotations with TTL cache
+        # Store quotations with optional TTL cache
         self.quotations: Dict[str, Quotation] = {}
-        self.quotation_cache = TTLCache(maxsize=50, ttl=cache_ttl)
+        self.quotation_cache: Optional[TTLCache] = TTLCache(maxsize=50, ttl=cache_ttl) if cache_enabled else None
 
-        # Store processing tasks with TTL cache
+        # Store processing tasks with optional TTL cache
         self.processing_tasks: Dict[str, ProcessingTask] = {}
-        self.task_cache = TTLCache(maxsize=200, ttl=3600)  # Tasks live longer
+        self.task_cache: Optional[TTLCache] = TTLCache(maxsize=200, ttl=3600) if cache_enabled else None  # Tasks live longer
 
-        # Store extracted images with TTL cache
+        # Store extracted images with optional TTL cache
         self.extracted_images: Dict[str, ExtractedImage] = {}
-        self.image_cache = TTLCache(maxsize=500, ttl=cache_ttl)
+        self.image_cache: Optional[TTLCache] = TTLCache(maxsize=500, ttl=cache_ttl) if cache_enabled else None
 
-        # Store merge reports with TTL cache (2025-12-23 新增)
+        # Store merge reports with optional TTL cache
         self.merge_reports: Dict[str, MergeReport] = {}
-        self.merge_report_cache = TTLCache(maxsize=50, ttl=cache_ttl)
+        self.merge_report_cache: Optional[TTLCache] = TTLCache(maxsize=50, ttl=cache_ttl) if cache_enabled else None
 
-        logger.info("InMemoryStore initialized")
+        logger.info(f"InMemoryStore initialized (cache_enabled={cache_enabled}, ttl={cache_ttl}s)")
 
     # ===== Document Management =====
 
@@ -63,7 +67,8 @@ class InMemoryStore:
             document: SourceDocument to add
         """
         self.documents[document.id] = document
-        self.document_cache[document.id] = document
+        if self.document_cache is not None:
+            self.document_cache[document.id] = document
         logger.info(f"Document added: {document.id}")
 
     def get_document(self, document_id: str) -> SourceDocument:
@@ -102,7 +107,8 @@ class InMemoryStore:
         if document.id not in self.documents:
             raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
         self.documents[document.id] = document
-        self.document_cache[document.id] = document
+        if self.document_cache is not None:
+            self.document_cache[document.id] = document
         logger.info(f"Document updated: {document.id}")
 
     def delete_document(self, document_id: str) -> None:
@@ -115,7 +121,8 @@ class InMemoryStore:
         if document_id not in self.documents:
             raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
         del self.documents[document_id]
-        self.document_cache.pop(document_id, None)
+        if self.document_cache is not None:
+            self.document_cache.pop(document_id, None)
         logger.info(f"Document deleted: {document_id}")
 
     # ===== BOQ Item Management =====
@@ -182,7 +189,8 @@ class InMemoryStore:
             quotation: Quotation to add
         """
         self.quotations[quotation.id] = quotation
-        self.quotation_cache[quotation.id] = quotation
+        if self.quotation_cache is not None:
+            self.quotation_cache[quotation.id] = quotation
         logger.info(f"Quotation added: {quotation.id}")
 
     def get_quotation(self, quotation_id: str) -> Quotation:
@@ -221,7 +229,8 @@ class InMemoryStore:
         if quotation.id not in self.quotations:
             raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在", status_code=404)
         self.quotations[quotation.id] = quotation
-        self.quotation_cache[quotation.id] = quotation
+        if self.quotation_cache is not None:
+            self.quotation_cache[quotation.id] = quotation
         logger.info(f"Quotation updated: {quotation.id}")
 
     def delete_quotation(self, quotation_id: str) -> None:
@@ -234,7 +243,8 @@ class InMemoryStore:
         if quotation_id not in self.quotations:
             raise_error(ErrorCode.QUOTATION_NOT_FOUND, "報價單不存在", status_code=404)
         del self.quotations[quotation_id]
-        self.quotation_cache.pop(quotation_id, None)
+        if self.quotation_cache is not None:
+            self.quotation_cache.pop(quotation_id, None)
         logger.info(f"Quotation deleted: {quotation_id}")
 
     # ===== Processing Task Management =====
@@ -247,7 +257,8 @@ class InMemoryStore:
             task: ProcessingTask to add
         """
         self.processing_tasks[task.task_id] = task
-        self.task_cache[task.task_id] = task
+        if self.task_cache is not None:
+            self.task_cache[task.task_id] = task
         logger.info(f"Task added: {task.task_id}")
 
     def get_task(self, task_id: str) -> ProcessingTask:
@@ -277,7 +288,8 @@ class InMemoryStore:
         if task.task_id not in self.processing_tasks:
             raise_error(ErrorCode.TASK_NOT_FOUND, "任務不存在", status_code=404)
         self.processing_tasks[task.task_id] = task
-        self.task_cache[task.task_id] = task
+        if self.task_cache is not None:
+            self.task_cache[task.task_id] = task
         logger.debug(f"Task updated: {task.task_id}")
 
     def get_tasks_by_document(self, document_id: str) -> List[ProcessingTask]:
@@ -316,7 +328,8 @@ class InMemoryStore:
             image: ExtractedImage to add
         """
         self.extracted_images[image.id] = image
-        self.image_cache[image.id] = image
+        if self.image_cache is not None:
+            self.image_cache[image.id] = image
         logger.info(f"Image added: {image.id}")
 
     def get_image(self, image_id: str) -> ExtractedImage:
@@ -372,7 +385,8 @@ class InMemoryStore:
             report: MergeReport to add
         """
         self.merge_reports[report.id] = report
-        self.merge_report_cache[report.id] = report
+        if self.merge_report_cache is not None:
+            self.merge_report_cache[report.id] = report
         logger.info(f"Merge report added: {report.id}")
 
     def get_merge_report(self, report_id: str) -> MergeReport:
@@ -414,12 +428,12 @@ class InMemoryStore:
         # TTLCache handles expiration automatically
         logger.info("Cache cleanup performed")
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """
         Get store statistics.
 
         Returns:
-            Dictionary with counts of stored items
+            Dictionary with counts of stored items and cache status
         """
         return {
             "documents": len(self.documents),
@@ -428,6 +442,8 @@ class InMemoryStore:
             "processing_tasks": len(self.processing_tasks),
             "extracted_images": len(self.extracted_images),
             "merge_reports": len(self.merge_reports),
+            "cache_enabled": self.cache_enabled,
+            "cache_ttl": self.cache_ttl,
         }
 
 
@@ -435,17 +451,25 @@ class InMemoryStore:
 _store: Optional[InMemoryStore] = None
 
 
-def get_store(cache_ttl: int = 3600) -> InMemoryStore:
+def get_store(
+    cache_ttl: Optional[int] = None,
+    cache_enabled: Optional[bool] = None,
+) -> InMemoryStore:
     """
     Get or create global store instance.
 
     Args:
-        cache_ttl: Cache time-to-live in seconds
+        cache_ttl: Cache time-to-live in seconds (default from settings)
+        cache_enabled: Whether to enable TTL cache (default from settings)
 
     Returns:
         InMemoryStore instance
     """
+    from .config import settings
+
     global _store
     if _store is None:
-        _store = InMemoryStore(cache_ttl=cache_ttl)
+        _ttl = cache_ttl if cache_ttl is not None else settings.store_cache_ttl
+        _enabled = cache_enabled if cache_enabled is not None else settings.store_cache_enabled
+        _store = InMemoryStore(cache_ttl=_ttl, cache_enabled=_enabled)
     return _store
