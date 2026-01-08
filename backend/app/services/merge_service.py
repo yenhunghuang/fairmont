@@ -5,10 +5,8 @@
 """
 
 import logging
-import re
 import time
 from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
-from datetime import datetime
 
 from ..models.boq_item import BOQItem
 from ..models.quantity_summary import QuantitySummaryItem
@@ -302,8 +300,8 @@ class MergeService:
                     f"Item No. '{original_item_no}' 僅在數量總表中，無對應明細規格"
                 )
 
-        # 排序：面料跟隨對應家具
-        merged_items = self._sort_items_fabric_follows_furniture(merged_items)
+        # 排序：單純按 item_no 排序（不考慮面料家具關聯）
+        merged_items = self._sort_items_by_item_no(merged_items)
 
         # 重新編號
         for idx, item in enumerate(merged_items, start=1):
@@ -418,122 +416,26 @@ class MergeService:
 
         return merged
 
-    def _get_fabric_detection_pattern(self) -> str:
-        """取得面料偵測正規表達式（從 VendorSkill 載入）."""
-        self._ensure_vendor_loaded()
-        if self._vendor_skill:
-            return self._vendor_skill.fabric_detection.pattern
-        return r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)"
-
-    def _parse_fabric_targets(self, description: Optional[str]) -> List[str]:
+    def _sort_items_by_item_no(self, items: List[BOQItem]) -> List[BOQItem]:
         """
-        從 description 解析面料對應的所有目標家具 item_no.
-
-        格式範例:
-        - "Vinyl to DLX-100" -> ["DLX-100"]
-        - "Fabric to DLX-100 and to DLX-200" -> ["DLX-100", "DLX-200"]
-
-        Args:
-            description: 項目描述
-
-        Returns:
-            目標家具 item_no 列表（已正規化），若非面料則返回空列表
-        """
-        if not description:
-            return []
-
-        pattern = self._get_fabric_detection_pattern()
-        matches = re.findall(pattern, description, re.IGNORECASE)
-        if matches:
-            return [self.item_normalizer.normalize(m) for m in matches]
-        return []
-
-    def _sort_items_fabric_follows_furniture(
-        self, items: List[BOQItem]
-    ) -> List[BOQItem]:
-        """
-        排序項目：面料跟隨對應家具.
-
-        規則：
-        1. 所有家具按 item_no 排序
-        2. 面料項目插入到其引用的每個家具之後（面料可重複出現）
-        3. 孤立面料（所有目標家具都不存在）放到最後
+        單純按 item_no 排序項目.
 
         Args:
             items: 合併後的 BOQItem 列表
 
         Returns:
-            排序後的 BOQItem 列表（面料可能重複出現）
+            排序後的 BOQItem 列表
         """
         if not items:
             return items
 
-        # 建立索引
-        fabric_targets: Dict[str, List[str]] = {}  # fabric normalized_id -> [furniture normalized_ids]
-        furniture_fabrics: Dict[str, List[BOQItem]] = {}  # furniture normalized_id -> [fabric items]
-        all_items_by_id: Dict[str, BOQItem] = {}  # normalized_id -> item
-
-        for item in items:
-            normalized_id = item.item_no_normalized or self.item_normalizer.normalize(item.item_no)
-            all_items_by_id[normalized_id] = item
-
-            # 檢查是否為面料項目（可能引用多個家具）
-            targets = self._parse_fabric_targets(item.description)
-            if targets:
-                fabric_targets[normalized_id] = targets
-                # 將面料加入每個目標家具的列表
-                for target in targets:
-                    if target not in furniture_fabrics:
-                        furniture_fabrics[target] = []
-                    furniture_fabrics[target].append(item)
-
-        # 識別家具項目（非面料）
-        fabric_items_set = set(fabric_targets.keys())
-        furniture_ids: List[str] = [
-            nid for nid in all_items_by_id.keys()
-            if nid not in fabric_items_set
-        ]
-
-        # 所有家具按 item_no 排序
-        furniture_ids.sort()
-
-        # 組合結果：家具 + 對應面料（面料可重複出現在多個家具後）
-        sorted_items: List[BOQItem] = []
-
-        for furniture_id in furniture_ids:
-            # 加入家具
-            sorted_items.append(all_items_by_id[furniture_id])
-
-            # 加入該家具對應的面料（按 item_no 排序，允許重複）
-            fabrics = furniture_fabrics.get(furniture_id, [])
-            if fabrics:
-                fabrics_sorted = sorted(
-                    fabrics,
-                    key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
-                )
-                sorted_items.extend(fabrics_sorted)
-
-        # 處理孤立的面料項目（所有目標家具都不存在）
-        matched_fabric_ids: set = set()
-        for furniture_id in furniture_ids:
-            for fabric in furniture_fabrics.get(furniture_id, []):
-                fabric_id = fabric.item_no_normalized or self.item_normalizer.normalize(fabric.item_no)
-                matched_fabric_ids.add(fabric_id)
-
-        orphan_fabrics = [
-            all_items_by_id[fid] for fid in fabric_targets.keys()
-            if fid not in matched_fabric_ids
-        ]
-        orphan_fabrics.sort(
+        # 按 item_no_normalized 或 item_no 排序
+        sorted_items = sorted(
+            items,
             key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
         )
-        sorted_items.extend(orphan_fabrics)
 
-        logger.debug(
-            f"Item sorting: {len(furniture_ids)} furniture, "
-            f"{len(orphan_fabrics)} orphan fabrics, "
-            f"{len(sorted_items)} total (including duplicates)"
-        )
+        logger.debug(f"Item sorting: {len(sorted_items)} items sorted by item_no")
 
         return sorted_items
 
