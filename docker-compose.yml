@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: furniture-quotation-backend
+    ports:
+      - "8001:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-600}
+      - API_KEY=${API_KEY}
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - SKILLS_DIR=/skills
+      - TEMP_DIR=/app/temp_files
+      - EXTRACTED_IMAGES_DIR=/app/extracted_images
+      - MAX_FILE_SIZE_MB=50
+      - MAX_FILES=5
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./skills:/skills:ro
+      - backend_temp:/app/temp_files
+      - backend_images:/app/extracted_images
+    networks:
+      - furniture-network
+    restart: unless-stopped
+
+networks:
+  furniture-network:
+    driver: bridge
+
+volumes:
+  backend_temp:
+  backend_images:

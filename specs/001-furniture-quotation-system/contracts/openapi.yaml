@@ -1,0 +1,1176 @@
+openapi: 3.0.3
+info:
+  title: 家具報價單系統 API
+  description: |
+    家具報價單系統後端 API，提供 PDF 上傳、BOQ 解析、跨表合併、Excel 報價單產出功能。
+
+    ## 功能概述
+    - PDF 檔案上傳與管理（支援多檔上傳）
+    - BOQ 表格自動解析（使用 Gemini AI）
+    - **跨表合併**：數量總表 + 明細規格表自動合併
+    - 平面圖數量核對（已棄用）
+    - 惠而蒙格式 Excel 報價單產出
+
+    ## 跨表合併流程 (2025-12-23 新增)
+    1. 上傳多個 PDF（含數量總表 + 明細規格表）
+    2. 系統自動偵測文件角色（依檔名關鍵字）
+    3. 解析各文件後執行跨表合併
+    4. 產出合併報告與報價單
+
+    ## 錯誤處理
+    所有錯誤回應皆使用繁體中文訊息。
+  version: 2.0.0
+  contact:
+    name: API 支援
+
+servers:
+  - url: http://localhost:8000
+    description: 開發環境
+  - url: http://api.example.com
+    description: 生產環境
+
+tags:
+  - name: Health
+    description: 健康檢查
+  - name: Upload
+    description: 檔案上傳
+  - name: Parse
+    description: PDF 解析
+  - name: Merge
+    description: 跨表合併（2025-12-23 新增）
+  - name: Export
+    description: Excel 匯出
+  - name: Task
+    description: 任務狀態追蹤
+
+paths:
+  /:
+    get:
+      tags:
+        - Health
+      summary: 健康檢查
+      description: 確認 API 服務運行狀態
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 服務正常運行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/v1/documents:
+    post:
+      tags:
+        - Upload
+      summary: 上傳 PDF 檔案
+      description: |
+        上傳單一或多個 PDF 檔案，系統將建立處理任務。
+
+        **限制**：
+        - 單檔最大 50MB
+        - 最多同時上傳 5 個檔案
+        - 僅接受 PDF 格式
+      operationId: uploadFiles
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: PDF 檔案（最多 10 個）
+                  maxItems: 10
+                document_type:
+                  type: string
+                  enum: [boq, floor_plan, auto]
+                  default: auto
+                  description: 文件類型（auto 表示自動偵測，推薦使用 auto 以啟用跨表合併）
+              required:
+                - files
+      responses:
+        '201':
+          description: 上傳成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: 上傳失敗（檔案格式錯誤、大小超過限制等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 伺服器錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+
+    get:
+      tags:
+        - Upload
+      summary: 取得已上傳文件列表
+      operationId: listDocuments
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: 回傳數量限制
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+          description: 篩選解析狀態
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SourceDocument'
+                  total:
+                    type: integer
+
+  /api/v1/documents/{document_id}:
+    get:
+      tags:
+        - Upload
+      summary: 取得單一文件資訊
+      operationId: getDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceDocument'
+        '404':
+          description: 找不到文件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Upload
+      summary: 刪除文件
+      operationId: deleteDocument
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 刪除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 文件已刪除
+        '404':
+          description: 找不到文件
+
+  /api/v1/documents/{document_id}/parsing:
+    post:
+      tags:
+        - Parse
+      summary: 啟動 PDF 解析
+      description: |
+        對已上傳的 PDF 文件啟動 BOQ 解析任務。
+        解析使用 Gemini AI 進行，為非同步操作。
+      operationId: startParsing
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                extract_images:
+                  type: boolean
+                  default: true
+                  description: 是否提取圖片
+                target_categories:
+                  type: array
+                  items:
+                    type: string
+                  description: 目標類別篩選（如：活動家具）
+      responses:
+        '202':
+          description: 解析任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          description: 請求無效
+        '404':
+          description: 找不到文件
+
+  /api/v1/documents/{document_id}/parse-result:
+    get:
+      tags:
+        - Parse
+      summary: 取得解析結果
+      description: 取得 PDF 解析完成後的 BOQ 項目列表
+      operationId: getParseResult
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BOQItem'
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExtractedImage'
+                  statistics:
+                    $ref: '#/components/schemas/ParseStatistics'
+        '404':
+          description: 找不到文件或解析尚未完成
+
+  /api/v1/floor-plan-analyses:
+    post:
+      tags:
+        - Parse
+      summary: 平面圖數量核對
+      description: |
+        分析平面圖 PDF，核對並補充 BOQ 項目中缺失的數量。
+      operationId: analyzeFloorPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                floor_plan_document_id:
+                  type: string
+                  description: 平面圖文件 ID
+                boq_document_id:
+                  type: string
+                  description: BOQ 文件 ID
+                items_to_verify:
+                  type: array
+                  items:
+                    type: string
+                  description: 需要核對的項目 ID 列表（空表示全部）
+              required:
+                - floor_plan_document_id
+                - boq_document_id
+      responses:
+        '202':
+          description: 核對任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+
+  /api/v1/quotations:
+    post:
+      tags:
+        - Export
+      summary: 建立報價單
+      description: 從解析結果建立報價單
+      operationId: createQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: 來源文件 ID 列表
+                title:
+                  type: string
+                  description: 報價單標題
+              required:
+                - document_ids
+      responses:
+        '201':
+          description: 報價單已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quotation'
+
+  /api/v1/quotations/merge:
+    post:
+      tags:
+        - Merge
+      summary: 建立跨表合併報價單
+      description: |
+        從多個 PDF 文件建立跨表合併報價單。
+
+        **跨表合併流程**：
+        1. 自動偵測各文件角色（數量總表 vs 明細規格表）
+        2. 解析數量總表取得 Item No. + Total Qty
+        3. 解析明細規格表取得完整 15 欄資料
+        4. 依 Item No. 配對，用數量總表的 qty 覆蓋明細表
+        5. 多明細表欄位依上傳順序優先合併
+        6. 圖片選擇最高解析度
+
+        **檔名關鍵字偵測**：
+        - 數量總表：`qty`, `overall`, `summary`, `數量`, `總量`, `總表`
+        - 其他：視為明細規格表
+      operationId: createMergedQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeQuotationRequest'
+      responses:
+        '202':
+          description: 合併任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeTaskResponse'
+        '400':
+          description: 請求無效（無有效文件、文件角色錯誤等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 找不到指定文件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/quotations/{quotation_id}:
+    get:
+      tags:
+        - Export
+      summary: 取得報價單
+      operationId: getQuotation
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quotation'
+        '404':
+          description: 找不到報價單
+
+  /api/v1/quotations/{quotation_id}/merge-report:
+    get:
+      tags:
+        - Merge
+      summary: 取得合併報告
+      description: |
+        取得跨表合併的詳細報告，包含：
+        - 各項目的合併狀態（配對成功/未配對/僅在數量總表）
+        - 欄位來源追蹤（每個欄位來自哪個文件）
+        - 圖片選擇說明
+        - 警告訊息
+      operationId: getMergeReport
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeReport'
+        '404':
+          description: 找不到報價單或合併報告
+
+  /api/v1/quotations/{quotation_id}/items:
+    get:
+      tags:
+        - Export
+      summary: 取得報價單項目列表
+      operationId: getQuotationItems
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BOQItem'
+                  total:
+                    type: integer
+
+    patch:
+      tags:
+        - Export
+      summary: 更新報價單項目
+      description: 批次更新報價單中的項目資料
+      operationId: updateQuotationItems
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      qty:
+                        type: number
+                      description:
+                        type: string
+                      materials_specs:
+                        type: string
+      responses:
+        '200':
+          description: 更新成功
+
+  /api/v1/quotations/{quotation_id}/excel:
+    get:
+      tags:
+        - Export
+      summary: 產出並下載 Excel 報價單
+      description: |
+        將報價單匯出為惠而蒙格式 Excel 檔案。
+        若檔案尚未產出，將非同步產生並返回 202；
+        若檔案已產出，直接返回 200 與檔案內容。
+      operationId: exportExcel
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+        - name: include_photos
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: 是否嵌入圖片
+        - name: photo_height_cm
+          in: query
+          schema:
+            type: number
+            default: 3.0
+          description: 圖片高度（公分）
+      responses:
+        '200':
+          description: Excel 檔案
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '202':
+          description: 匯出任務進行中，稍後重試
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: 找不到報價單
+
+  /api/v1/tasks/{task_id}:
+    get:
+      tags:
+        - Task
+      summary: 取得任務狀態
+      description: 查詢非同步任務的執行狀態與進度
+      operationId: getTaskStatus
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskStatus'
+        '404':
+          description: 找不到任務
+
+  /api/v1/tasks:
+    get:
+      tags:
+        - Task
+      summary: 取得任務列表
+      operationId: listTasks
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaskStatus'
+                  total:
+                    type: integer
+
+  /api/v1/images/{image_id}:
+    get:
+      tags:
+        - Upload
+      summary: 取得提取的圖片
+      operationId: getImage
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 圖片檔案
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 找不到圖片
+
+components:
+  parameters:
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 文件 ID
+
+    QuotationId:
+      name: quotation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 報價單 ID
+
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 任務 ID
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: 服務運行中
+        timestamp:
+          type: string
+          format: date-time
+
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              document_id:
+                type: string
+                format: uuid
+              filename:
+                type: string
+              file_size:
+                type: integer
+              task_id:
+                type: string
+                format: uuid
+                description: 自動解析任務 ID（若啟用）
+        message:
+          type: string
+          example: 已成功上傳 3 個檔案
+
+    SourceDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        file_size:
+          type: integer
+        document_type:
+          type: string
+          enum: [boq, floor_plan, unknown]
+        document_role:
+          type: string
+          enum: [quantity_summary, detail_spec, unknown]
+          description: 跨表合併角色（2025-12-23 新增）
+        upload_order:
+          type: integer
+          minimum: 0
+          description: 上傳順序（用於多明細表合併優先順序）
+        role_detected_by:
+          type: string
+          enum: [filename, manual, content]
+          description: 角色偵測方式
+        parse_status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        parse_progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        parse_message:
+          type: string
+        total_pages:
+          type: integer
+        extracted_items_count:
+          type: integer
+        extracted_images_count:
+          type: integer
+        uploaded_at:
+          type: string
+          format: date-time
+        processed_at:
+          type: string
+          format: date-time
+
+    BOQItem:
+      type: object
+      description: |
+        BOQ 項目資料模型（17 欄，含分類與附屬）
+        Excel 欄位: A:NO., B:Item no., C:Description, D:Photo, E:Dimension,
+        F:Qty, G:UOM, H:Unit Rate(留空), I:Amount(留空), J:Unit CBM,
+        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand,
+        P:Category, Q:Affiliate
+      required:
+        - id
+        - item_no
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 唯一識別碼（內部使用）
+        no:
+          type: integer
+          minimum: 1
+          description: A 欄：序號
+        item_no:
+          type: string
+          description: B 欄：項目編號
+        description:
+          type: string
+          description: C 欄：品名描述
+        photo_base64:
+          type: string
+          description: D 欄：圖片 Base64 編碼
+          nullable: true
+        dimension:
+          type: string
+          description: E 欄：尺寸 WxDxH (mm)
+          nullable: true
+        qty:
+          type: number
+          description: F 欄：數量
+          nullable: true
+        uom:
+          type: string
+          description: G 欄：單位（ea, m, set 等）
+          nullable: true
+        unit_cbm:
+          type: number
+          description: J 欄：單位材積
+          nullable: true
+        note:
+          type: string
+          description: L 欄：備註
+          nullable: true
+        location:
+          type: string
+          description: M 欄：位置
+          nullable: true
+        materials_specs:
+          type: string
+          description: N 欄：使用材料/規格
+          nullable: true
+        brand:
+          type: string
+          description: O 欄：品牌
+          nullable: true
+        source_document_id:
+          type: string
+          description: 來源文件 ID（內部使用）
+        source_page:
+          type: integer
+          description: 來源頁碼（內部使用）
+          nullable: true
+        source_type:
+          type: string
+          enum: [boq, floor_plan, manual]
+          description: 資料來源類型（內部使用）
+        qty_verified:
+          type: boolean
+          description: 數量是否已核對（內部使用）
+          default: false
+        qty_source:
+          type: string
+          enum: [boq, floor_plan]
+          description: 數量資料來源（內部使用）
+          nullable: true
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.（用於跨表配對）
+          nullable: true
+        source_files:
+          type: array
+          items:
+            type: string
+          description: 來源文件 ID 列表（多來源時記錄所有來源）
+        merge_status:
+          type: string
+          enum: [matched, unmatched, quantity_only]
+          description: 合併狀態
+          nullable: true
+        qty_from_summary:
+          type: boolean
+          description: 數量是否來自數量總表
+          default: false
+        image_selected_from:
+          type: string
+          description: 圖片選自哪個來源文件 ID
+          nullable: true
+        category:
+          type: integer
+          enum: [1, 5]
+          description: |
+            P 欄：分類
+            - 1: 家具 (Furniture)
+            - 5: 面料 (Fabric)
+          nullable: true
+        affiliate:
+          type: string
+          description: |
+            Q 欄：附屬 - 面料來源的家具編號
+            - 面料項目：對應的家具 Item No.，多個用 ', ' 分隔（如 DLX-100, DLX-101）
+            - 家具項目：null
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: 建立時間
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新時間
+
+    ExtractedImage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        url:
+          type: string
+          description: 圖片 API URL
+        format:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        source_document_id:
+          type: string
+        source_page:
+          type: integer
+        boq_item_id:
+          type: string
+          nullable: true
+        matched:
+          type: boolean
+
+    ParseStatistics:
+      type: object
+      properties:
+        total_items:
+          type: integer
+        items_with_qty:
+          type: integer
+        items_with_photo:
+          type: integer
+        items_missing_qty:
+          type: integer
+        total_images:
+          type: integer
+        matched_images:
+          type: integer
+
+    Quotation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        source_document_ids:
+          type: array
+          items:
+            type: string
+        total_items:
+          type: integer
+        items_with_qty:
+          type: integer
+        items_with_photo:
+          type: integer
+        items_from_floor_plan:
+          type: integer
+        export_status:
+          type: string
+          enum: [pending, generating, completed, failed]
+        export_path:
+          type: string
+          nullable: true
+
+    TaskResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        message:
+          type: string
+          example: 任務已建立，正在處理中
+
+    TaskStatus:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+          enum: [parse_pdf, extract_images, generate_excel, analyze_floor_plan, merge_documents, parse_quantity_summary]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+          description: 狀態訊息（繁體中文）
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: true
+        error_code:
+          type: string
+          example: FILE_001
+        message:
+          type: string
+          example: 檔案大小超過限制（最大 50MB）
+        detail:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+
+    # ===== 跨表合併相關 Schema (2025-12-23 新增) =====
+
+    MergeQuotationRequest:
+      type: object
+      description: 跨表合併報價單請求
+      properties:
+        document_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: 來源文件 ID 列表（含數量總表和明細規格表）
+          minItems: 1
+          maxItems: 10
+        title:
+          type: string
+          description: 報價單標題
+        override_roles:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [quantity_summary, detail_spec]
+          description: |
+            手動覆蓋文件角色（document_id -> role）。
+            若不指定，系統將根據檔名關鍵字自動偵測。
+      required:
+        - document_ids
+
+    MergeTaskResponse:
+      type: object
+      description: 合併任務回應
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          description: 任務 ID
+        quotation_id:
+          type: string
+          format: uuid
+          description: 報價單 ID（任務完成後可用）
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        message:
+          type: string
+          example: 跨表合併任務已建立
+        detected_roles:
+          type: object
+          description: 偵測到的文件角色
+          properties:
+            quantity_summary:
+              type: object
+              properties:
+                document_id:
+                  type: string
+                filename:
+                  type: string
+              nullable: true
+            detail_specs:
+              type: array
+              items:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                  filename:
+                    type: string
+                  upload_order:
+                    type: integer
+
+    MergeReport:
+      type: object
+      description: 跨表合併報告
+      properties:
+        id:
+          type: string
+          format: uuid
+        quotation_id:
+          type: string
+          format: uuid
+        quantity_summary_doc_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 數量總表文件 ID
+        detail_spec_doc_ids:
+          type: array
+          items:
+            type: string
+          description: 明細規格表文件 ID 列表（按上傳順序）
+        total_items:
+          type: integer
+          minimum: 0
+          description: 合併後總項目數
+        matched_items:
+          type: integer
+          minimum: 0
+          description: 成功配對項目數（數量總表有對應項目）
+        unmatched_items:
+          type: integer
+          minimum: 0
+          description: 未配對項目數（僅在明細表，數量總表無對應）
+        quantity_only_items:
+          type: integer
+          minimum: 0
+          description: 僅在數量總表的項目數
+        match_rate:
+          type: number
+          format: float
+          description: 配對率（百分比）
+        merge_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MergeResultItem'
+          description: 各項目合併詳情
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 合併過程警告訊息
+        created_at:
+          type: string
+          format: date-time
+        processing_time_ms:
+          type: integer
+          minimum: 0
+          description: 處理時間（毫秒）
+
+    MergeResultItem:
+      type: object
+      description: 單一項目的合併結果
+      properties:
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.
+        original_item_nos:
+          type: array
+          items:
+            type: string
+          description: 原始 Item No. 列表（來自不同文件）
+        status:
+          type: string
+          enum: [matched, unmatched, quantity_only]
+          description: |
+            合併狀態：
+            - matched: 成功配對（數量總表有對應項目）
+            - unmatched: 未配對（僅在明細表）
+            - quantity_only: 僅在數量總表出現
+        quantity_source:
+          type: string
+          format: uuid
+          nullable: true
+          description: 數量來源文件 ID
+        detail_sources:
+          type: array
+          items:
+            type: string
+          description: 明細來源文件 ID 列表（按上傳順序）
+        field_sources:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            欄位來源對照（field_name -> document_id）。
+            例如：{"description": "doc-123", "dimension": "doc-456"}
+        selected_image_source:
+          type: string
+          format: uuid
+          nullable: true
+          description: 選用圖片的來源文件 ID
+        image_resolution:
+          type: integer
+          nullable: true
+          description: 選用圖片的解析度 (width × height)
+
+    QuantitySummaryItem:
+      type: object
+      description: 數量總表項目
+      properties:
+        item_no_raw:
+          type: string
+          description: 原始 Item No.
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.
+        total_qty:
+          type: number
+          minimum: 0
+          description: 總數量
+        uom:
+          type: string
+          nullable: true
+          description: 單位
+        source_document_id:
+          type: string
+          format: uuid
+        source_page:
+          type: integer
+          minimum: 1
+          nullable: true
