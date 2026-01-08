@@ -1,6 +1,7 @@
-"""Streamlit main application - POC version with simplified step-based flow."""
+"""Streamlit main application - 使用 /api/v1/process 單一 API 端點."""
 
 import streamlit as st
+import pandas as pd
 import os
 from styles import apply_poc_styles
 
@@ -24,28 +25,17 @@ def init_session_state():
         from services.api_client import APIClient
         backend_host = os.getenv("BACKEND_HOST", "localhost")
         backend_port = os.getenv("BACKEND_PORT", "8000")
+        api_key = os.getenv("API_KEY", "")
         base_url = f"http://{backend_host}:{backend_port}"
-        st.session_state.api_client = APIClient(base_url=base_url)
+        st.session_state.api_client = APIClient(base_url=base_url, api_key=api_key)
 
-    # Workflow step
+    # Workflow step: upload or results
     if "step" not in st.session_state:
-        st.session_state.step = "upload"  # 三個步驟：upload, processing, download
+        st.session_state.step = "upload"
 
-    # Current task info - 支援多任務追蹤
-    if "current_task_id" not in st.session_state:
-        st.session_state.current_task_id = None
-
-    if "current_task_ids" not in st.session_state:
-        st.session_state.current_task_ids = []  # 所有任務 ID
-
-    if "current_document_ids" not in st.session_state:
-        st.session_state.current_document_ids = []
-
-    if "quotation_id" not in st.session_state:
-        st.session_state.quotation_id = None
-
-    if "excel_content" not in st.session_state:
-        st.session_state.excel_content = None
+    # Processing results
+    if "items" not in st.session_state:
+        st.session_state.items = None
 
 
 def get_api_client():
@@ -60,12 +50,11 @@ init_session_state()
 
 
 def show_step_indicator():
-    """顯示簡單的步驟指示器（緊湊版）"""
-    steps = ["📤 上傳", "⏳ 處理", "📥 下載"]
-    step_indices = {"upload": 0, "processing": 1, "download": 2}
+    """顯示簡單的步驟指示器"""
+    steps = ["📤 上傳處理", "📊 檢視結果"]
+    step_indices = {"upload": 0, "results": 1}
     current_step = step_indices.get(st.session_state.step, 0)
 
-    # Build compact step indicator HTML
     step_html = '<div style="display: flex; justify-content: center; gap: 2rem; padding: 0.5rem 0;">'
     for i, step in enumerate(steps):
         if i == current_step:
@@ -83,22 +72,30 @@ def show_step_indicator():
     st.markdown(step_html, unsafe_allow_html=True)
 
 
+def category_to_label(cat):
+    """Convert category number to label."""
+    if cat == 1:
+        return "家具"
+    elif cat == 5:
+        return "面料"
+    return "-"
+
+
 def show_upload_page():
     """上傳頁面"""
-    # Compact header
     st.markdown(
         """
         <h1 style="color: #2C5F7F; border-bottom: 3px solid #2C5F7F; padding-bottom: 8px; margin-bottom: 5px;">
             📋 家具報價單系統
         </h1>
-        <p style="color: #666; margin: 0 0 10px 0;">上傳 BOQ PDF 檔案，系統自動解析並產出 Excel 報價單</p>
+        <p style="color: #666; margin: 0 0 10px 0;">上傳 BOQ PDF 檔案，系統自動解析並產出 17 欄 JSON 結果</p>
         """,
         unsafe_allow_html=True,
     )
 
     show_step_indicator()
 
-    # File uploader section - unified dropzone with integrated header
+    # File uploader
     uploaded_files = st.file_uploader(
         "選擇 PDF 檔案",
         type=["pdf"],
@@ -109,7 +106,6 @@ def show_upload_page():
     )
 
     if uploaded_files:
-        # Compact file selection display with inline button
         file_names = ", ".join([f.name for f in uploaded_files])
         total_size = sum(f.size for f in uploaded_files) / (1024 * 1024)
 
@@ -127,296 +123,247 @@ def show_upload_page():
         with col2:
             upload_clicked = st.button("🚀 上傳並開始解析", type="primary", use_container_width=True)
 
-        # Expandable file details (collapsed by default)
         with st.expander(f"📋 檔案詳情", expanded=False):
             for file in uploaded_files:
                 file_size_mb = file.size / (1024 * 1024)
                 st.markdown(f"• **{file.name}** ({file_size_mb:.2f} MB)")
 
         if upload_clicked:
-            with st.spinner("正在上傳..."):
-                try:
-                    client = get_api_client()
+            # Show processing message
+            progress_placeholder = st.empty()
+            status_placeholder = st.empty()
 
-                    # Convert to file format
-                    files_data = [(f.name, f.read()) for f in uploaded_files]
+            with progress_placeholder.container():
+                st.info("⏳ 正在處理中，請稍候... (約需 1-5 分鐘)")
+                progress_bar = st.progress(0)
 
-                    # Upload and parse
-                    response = client.upload_files(files_data)
+            try:
+                client = get_api_client()
 
-                    if not response.get("success"):
-                        st.error(f"❌ 上傳失敗：{response.get('message', '未知錯誤')}")
-                        return
+                # Convert to file format
+                files_data = [(f.name, f.read()) for f in uploaded_files]
 
-                    # Extract document IDs and task info
-                    data = response.get("data", {})
-                    documents = data.get("documents", [])
-                    parse_tasks = data.get("parse_tasks", [])
+                # Update progress
+                progress_bar.progress(10)
+                status_placeholder.text("📤 上傳檔案中...")
 
-                    if not parse_tasks:
-                        st.error("❌ 無法啟動解析任務")
-                        return
+                # Call process API
+                progress_bar.progress(20)
+                status_placeholder.text("🔄 AI 解析中... (這可能需要幾分鐘)")
 
-                    # Store info and advance to processing step
-                    st.session_state.current_document_ids = [d.get("id") for d in documents]
-                    st.session_state.current_task_ids = [t.get("task_id") for t in parse_tasks]
-                    st.session_state.current_task_id = parse_tasks[0].get("task_id")  # 向後相容
-                    st.session_state.step = "processing"
+                response = client.process_files(files_data)
 
-                    st.success("✅ 上傳成功！正在解析...")
-                    st.rerun()
+                progress_bar.progress(100)
 
-                except Exception as e:
-                    st.error(f"❌ 錯誤：{str(e)}")
-    else:
-        # Empty state - no additional hint needed as the box above is clear
-        pass
-
-
-def show_processing_page():
-    """處理頁面 - 顯示即時進度（支援多任務）"""
-    st.title("📋 家具報價單系統")
-    st.markdown("---")
-
-    show_step_indicator()
-    st.markdown("---")
-
-    st.subheader("🔄 正在處理您的檔案...")
-
-    client = get_api_client()
-    task_ids = st.session_state.get("current_task_ids", [])
-
-    # 向後相容：如果沒有 current_task_ids，使用 current_task_id
-    if not task_ids and st.session_state.current_task_id:
-        task_ids = [st.session_state.current_task_id]
-
-    if not task_ids:
-        st.error("❌ 錯誤：無效的任務 ID")
-        if st.button("返回上傳"):
-            st.session_state.step = "upload"
-            st.rerun()
-        return
-
-    # 顯示任務數量
-    st.caption(f"📄 共 {len(task_ids)} 個檔案正在處理")
-
-    # Progress display for each task
-    task_containers = {}
-    for i, task_id in enumerate(task_ids):
-        task_containers[task_id] = {
-            "status": st.empty(),
-            "progress": st.progress(0),
-        }
-
-    error_text = st.empty()
-
-    try:
-        import time
-        max_wait = 300  # 5 minutes
-        elapsed = 0
-
-        while elapsed < max_wait:
-            all_done = True
-            any_success = False
-            all_failed = True
-            failed_messages = []
-
-            for task_id in task_ids:
-                # Get task status
-                task_response = client.get_task_status(task_id)
-
-                if not task_response.get("success"):
-                    task_containers[task_id]["status"].warning(f"⚠️ 無法取得任務狀態")
-                    all_done = False
-                    all_failed = False
-                    continue
-
-                task_data = task_response.get("data", {})
-                task_status = task_data.get("status")
-                progress = task_data.get("progress", 0)
-                message = task_data.get("message", "")
-
-                # Update UI for this task
-                task_containers[task_id]["progress"].progress(min(progress / 100, 0.99))
-
-                if task_status == "completed":
-                    task_containers[task_id]["status"].success(f"✅ {message or '完成'}")
-                    task_containers[task_id]["progress"].progress(1.0)
-                    any_success = True
-                    all_failed = False
-                elif task_status == "failed":
-                    error_msg = task_data.get("message") or task_data.get("error") or "未知錯誤"
-                    task_containers[task_id]["status"].error(f"❌ {error_msg}")
-                    failed_messages.append(error_msg)
-                else:
-                    task_containers[task_id]["status"].info(f"⏳ {message or '處理中...'} ({progress}%)")
-                    all_done = False
-                    all_failed = False
-
-            # 決定下一步
-            if all_done:
-                if any_success:
-                    # 至少有一個成功，可以繼續
-                    st.success("✅ 處理完成！")
-                    if failed_messages:
-                        st.warning(f"⚠️ 部分檔案處理失敗：{len(failed_messages)} 個")
-                    st.session_state.step = "download"
-                    time.sleep(1)
-                    st.rerun()
-                    return
-                elif all_failed:
-                    # 全部失敗
-                    error_text.error("❌ 所有檔案處理失敗")
-                    for msg in failed_messages[:3]:  # 最多顯示 3 個錯誤
-                        st.error(f"• {msg}")
-                    if st.button("返回上傳"):
-                        st.session_state.step = "upload"
-                        st.rerun()
+                if not response.get("success"):
+                    progress_placeholder.empty()
+                    st.error(f"❌ 處理失敗：{response.get('message', '未知錯誤')}")
                     return
 
-            # Wait before next poll
-            time.sleep(2)
-            elapsed += 2
-            st.rerun()
+                data = response.get("data", {})
+                items = data.get("items", []) if isinstance(data, dict) else data
+                project_name = data.get("project_name") if isinstance(data, dict) else None
 
-        # Timeout
-        error_text.error(f"❌ 處理超時（{max_wait} 秒）")
-        if st.button("返回上傳"):
-            st.session_state.step = "upload"
-            st.rerun()
-
-    except Exception as e:
-        error_text.error(f"❌ 錯誤：{str(e)}")
-        if st.button("返回上傳"):
-            st.session_state.step = "upload"
-            st.rerun()
-
-
-def show_download_page():
-    """下載頁面 - 建立報價單並導出"""
-    st.title("📋 家具報價單系統")
-    st.markdown("---")
-
-    show_step_indicator()
-    st.markdown("---")
-
-    st.subheader("📊 建立報價單")
-
-    client = get_api_client()
-    document_ids = st.session_state.current_document_ids
-
-    if not document_ids:
-        st.error("❌ 錯誤：無效的文件列表")
-        if st.button("重新開始"):
-            st.session_state.step = "upload"
-            st.rerun()
-        return
-
-    # 如果已經有報價單，直接跳到匯出（避免重複建立）
-    if st.session_state.quotation_id:
-        quotation_id = st.session_state.quotation_id
-        st.success(f"✅ 報價單已建立 (ID: {quotation_id})")
-    else:
-        try:
-            # Create quotation with cross-document merge
-            # 使用跨表合併 API，自動處理數量總表與明細規格表的合併
-            with st.spinner("正在建立報價單（跨表合併中）..."):
-                # 多檔案時使用跨表合併
-                if len(document_ids) > 1:
-                    quotation_response = client.create_merged_quotation(document_ids)
-                else:
-                    quotation_response = client.create_quotation(document_ids)
-
-                if not quotation_response.get("success"):
-                    st.error(f"❌ 建立報價單失敗：{quotation_response.get('message')}")
-                    if st.button("返回上傳"):
-                        st.session_state.step = "upload"
-                        st.rerun()
+                if not items:
+                    progress_placeholder.empty()
+                    st.warning("⚠️ 未解析到任何項目")
                     return
 
-                quotation_id = quotation_response.get("data", {}).get("id")
-                st.session_state.quotation_id = quotation_id
+                # Store results and advance to results page
+                st.session_state.items = items
+                st.session_state.project_name = project_name
+                st.session_state.step = "results"
 
-                st.success(f"✅ 報價單已建立 (ID: {quotation_id})")
-
-        except Exception as e:
-            st.error(f"❌ 錯誤：{str(e)}")
-            if st.button("返回上傳"):
-                st.session_state.step = "upload"
+                progress_placeholder.empty()
+                status_placeholder.empty()
+                success_msg = f"✅ 處理完成！共解析 {len(items)} 個項目"
+                if project_name:
+                    success_msg += f" (專案: {project_name})"
+                st.success(success_msg)
                 st.rerun()
-            return
+
+            except Exception as e:
+                progress_placeholder.empty()
+                st.error(f"❌ 錯誤：{str(e)}")
+
+
+def show_results_page():
+    """結果頁面 - 顯示解析結果"""
+    st.markdown(
+        """
+        <h1 style="color: #2C5F7F; border-bottom: 3px solid #2C5F7F; padding-bottom: 8px; margin-bottom: 5px;">
+            📋 家具報價單系統
+        </h1>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    show_step_indicator()
+
+    items = st.session_state.items
+    project_name = st.session_state.get("project_name")
+
+    if not items:
+        st.warning("⚠️ 無資料可顯示")
+        if st.button("返回上傳"):
+            st.session_state.step = "upload"
+            st.rerun()
+        return
+
+    # Display project name if available
+    if project_name:
+        st.info(f"📁 專案名稱: **{project_name}**")
+
+    st.subheader(f"📊 解析結果 ({len(items)} 個項目)")
+
+    # Summary statistics
+    furniture_count = sum(1 for item in items if item.get("category") == 1)
+    fabric_count = sum(1 for item in items if item.get("category") == 5)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("總項目數", len(items))
+    with col2:
+        st.metric("家具", furniture_count)
+    with col3:
+        st.metric("面料", fabric_count)
 
     st.markdown("---")
 
-    # Export to Excel
-    st.subheader("📥 匯出 Excel")
+    # Create DataFrame for display
+    display_data = []
+    for item in items:
+        display_data.append({
+            "序號": item.get("no"),
+            "項目編號": item.get("item_no"),
+            "描述": item.get("description", "")[:50] + ("..." if len(item.get("description", "")) > 50 else ""),
+            "分類": category_to_label(item.get("category")),
+            "附屬": item.get("affiliate") or "-",
+            "數量": item.get("qty"),
+            "單位": item.get("uom"),
+            "尺寸": item.get("dimension", "")[:30] if item.get("dimension") else "-",
+            "品牌": item.get("brand") or "-",
+            "有圖片": "✅" if item.get("photo") else "❌",
+        })
 
-    # 確保有 quotation_id
-    quotation_id = st.session_state.quotation_id
+    df = pd.DataFrame(display_data)
 
-    col1, col2 = st.columns([2, 1])
+    # Display table
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        height=400,
+    )
+
+    st.markdown("---")
+
+    # Filter options
+    with st.expander("🔍 篩選與詳情", expanded=False):
+        filter_col1, filter_col2 = st.columns(2)
+
+        with filter_col1:
+            category_filter = st.selectbox(
+                "按分類篩選",
+                options=["全部", "家具", "面料"],
+                index=0,
+            )
+
+        with filter_col2:
+            search_term = st.text_input("搜尋項目編號或描述", "")
+
+        # Apply filters
+        filtered_items = items
+        if category_filter == "家具":
+            filtered_items = [i for i in filtered_items if i.get("category") == 1]
+        elif category_filter == "面料":
+            filtered_items = [i for i in filtered_items if i.get("category") == 5]
+
+        if search_term:
+            search_lower = search_term.lower()
+            filtered_items = [
+                i for i in filtered_items
+                if search_lower in (i.get("item_no", "").lower())
+                or search_lower in (i.get("description", "").lower())
+            ]
+
+        if filtered_items != items:
+            st.write(f"篩選結果：{len(filtered_items)} 個項目")
+
+            # Show filtered details
+            for item in filtered_items[:10]:
+                with st.container():
+                    st.markdown(f"**{item.get('item_no')}** - {item.get('description', '')[:80]}")
+                    detail_col1, detail_col2, detail_col3 = st.columns(3)
+                    with detail_col1:
+                        st.caption(f"分類: {category_to_label(item.get('category'))}")
+                    with detail_col2:
+                        st.caption(f"附屬: {item.get('affiliate') or '-'}")
+                    with detail_col3:
+                        st.caption(f"數量: {item.get('qty') or '-'} {item.get('uom') or ''}")
+
+    st.markdown("---")
+
+    # Export options
+    st.subheader("📥 匯出選項")
+
+    col1, col2, col3 = st.columns(3)
+
     with col1:
-        st.write("點擊按鈕產生並下載 Excel 報價單")
+        # Export as JSON
+        import json
+        json_str = json.dumps(items, ensure_ascii=False, indent=2)
+        st.download_button(
+            label="⬇️ 下載 JSON",
+            data=json_str,
+            file_name="boq_items.json",
+            mime="application/json",
+            use_container_width=True,
+        )
 
     with col2:
-        if st.button("產出 Excel", type="primary", use_container_width=True):
-            with st.spinner("正在產生 Excel..."):
-                try:
-                    excel_content = client.get_quotation_excel(
-                        quotation_id,
-                        include_photos=True,
-                        photo_height_cm=3.0,
-                    )
+        # Export as CSV
+        csv_data = []
+        for item in items:
+            csv_data.append({
+                "no": item.get("no"),
+                "item_no": item.get("item_no"),
+                "description": item.get("description"),
+                "dimension": item.get("dimension"),
+                "qty": item.get("qty"),
+                "uom": item.get("uom"),
+                "unit_cbm": item.get("unit_cbm"),
+                "note": item.get("note"),
+                "location": item.get("location"),
+                "materials_specs": item.get("materials_specs"),
+                "brand": item.get("brand"),
+                "category": item.get("category"),
+                "affiliate": item.get("affiliate"),
+            })
+        csv_df = pd.DataFrame(csv_data)
+        csv_str = csv_df.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button(
+            label="⬇️ 下載 CSV",
+            data=csv_str,
+            file_name="boq_items.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
-                    st.download_button(
-                        label="⬇️ 點擊下載 Excel",
-                        data=excel_content,
-                        file_name=f"報價單_{quotation_id}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                    )
-                    st.success("✅ Excel 已準備好下載！")
-
-                except Exception as e:
-                    st.error(f"❌ 產生 Excel 失敗：{str(e)}")
-
-    st.markdown("---")
-
-    # Next steps
-    st.subheader("🔄 後續步驟")
-    col1, col2 = st.columns(2)
-
-    with col1:
+    with col3:
         if st.button("📤 上傳新檔案", use_container_width=True):
             st.session_state.step = "upload"
-            st.session_state.current_task_id = None
-            st.session_state.current_task_ids = []
-            st.session_state.current_document_ids = []
-            st.session_state.quotation_id = None
-            st.rerun()
-
-    with col2:
-        if st.button("🔄 重新開始", use_container_width=True):
-            # Reset all state
-            for key in list(st.session_state.keys()):
-                if key not in ["api_client"]:
-                    del st.session_state[key]
-            st.session_state.step = "upload"
+            st.session_state.items = None
             st.rerun()
 
 
 def main():
     """Main application entry point."""
-
-    # Route based on current step
     if st.session_state.step == "upload":
         show_upload_page()
-    elif st.session_state.step == "processing":
-        show_processing_page()
-    elif st.session_state.step == "download":
-        show_download_page()
+    elif st.session_state.step == "results":
+        show_results_page()
     else:
-        # Default to upload
         st.session_state.step = "upload"
         show_upload_page()
 

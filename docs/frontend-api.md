@@ -17,50 +17,56 @@ Content-Type: multipart/form-data
 | 參數 | 類型 | 必填 | 說明 |
 |------|------|------|------|
 | files | File[] | 是 | PDF 檔案（最多 5 個，單檔 ≤ 50MB）|
-| title | string | 否 | 報價單標題 |
 | extract_images | boolean | 否 | 是否提取圖片（預設 true）|
 
 ### Response (200)
 
-直接返回 Fairmont 15 欄 JSON 陣列（無外層包裝）：
+返回 `ProcessResponse`，包含專案名稱與 17 欄 JSON 項目列表：
 
 ```json
-[
-  {
-    "no": 1,
-    "item_no": "DLX-101",
-    "description": "Custom Bed Bench",
-    "photo": "iVBORw0KGgo...",
-    "dimension": "1930 x 2130 x 290 H",
-    "qty": 248.0,
-    "uom": "ea",
-    "unit_rate": null,
-    "amount": null,
-    "unit_cbm": 1.74,
-    "total_cbm": null,
-    "note": "Bed bases only",
-    "location": "King DLX (A/B)",
-    "materials_specs": "Vinyl: DLX-500 Taupe",
-    "brand": "Fairmont"
-  },
-  {
-    "no": 2,
-    "item_no": "DLX-102",
-    "description": "King Bed",
-    "photo": "...",
-    "dimension": "2130 x 1930 x 450 H",
-    "qty": 120.0,
-    "uom": "ea",
-    "unit_rate": null,
-    "amount": null,
-    "unit_cbm": 2.15,
-    "total_cbm": null,
-    "note": null,
-    "location": "King Suite",
-    "materials_specs": "Fabric: COM Grade A",
-    "brand": null
-  }
-]
+{
+  "project_name": "SOLAIRE BAY TOWER",
+  "items": [
+    {
+      "no": 1,
+      "item_no": "DLX-101",
+      "description": "Custom Bed Bench",
+      "photo": "iVBORw0KGgo...",
+      "dimension": "1930 x 2130 x 290 H",
+      "qty": 248.0,
+      "uom": "ea",
+      "unit_rate": null,
+      "amount": null,
+      "unit_cbm": 1.74,
+      "total_cbm": null,
+      "note": "Bed bases only",
+      "location": "King DLX (A/B)",
+      "materials_specs": "Vinyl: DLX-500 Taupe",
+      "brand": "Fairmont",
+      "category": 1,
+      "affiliate": null
+    },
+    {
+      "no": 2,
+      "item_no": "FAB-001",
+      "description": "Vinyl to DLX-101",
+      "photo": null,
+      "dimension": "Vinyl-Pallas-Taupe-140cm",
+      "qty": 50.0,
+      "uom": "m",
+      "unit_rate": null,
+      "amount": null,
+      "unit_cbm": null,
+      "total_cbm": null,
+      "note": null,
+      "location": null,
+      "materials_specs": "Pattern: Taupe, Color: Brown",
+      "brand": "Pallas",
+      "category": 5,
+      "affiliate": "DLX-101"
+    }
+  ]
+}
 ```
 
 ### Response - 失敗 (4xx/5xx)
@@ -75,8 +81,15 @@ Content-Type: multipart/form-data
 
 ---
 
-## 15 欄 JSON 欄位說明
+## 17 欄 JSON 欄位說明
 
+### 外層結構
+| 欄位 | 類型 | 說明 |
+|------|------|------|
+| project_name | string \| null | 專案名稱（從 PDF 規格頁的 PROJECT 欄位提取）|
+| items | array | 項目列表 |
+
+### items 陣列欄位
 | # | JSON 欄位 | Excel 欄位 | 類型 | 說明 |
 |---|-----------|------------|------|------|
 | 1 | no | A: NO. | int | 序號（系統自動產生）|
@@ -94,6 +107,8 @@ Content-Type: multipart/form-data
 | 13 | location | M: Location | string \| null | 位置/區域 |
 | 14 | materials_specs | N: Materials | string \| null | 材料規格 |
 | 15 | brand | O: Brand | string \| null | 品牌 |
+| 16 | category | P: Category | int \| null | 分類（1=家具, 5=面料）|
+| 17 | affiliate | Q: Affiliate | string \| null | 附屬（面料來源的家具編號，多個用 `, ` 分隔）|
 
 **固定留空欄位**（使用者或公式填寫）：
 - `unit_rate` (H): 單價
@@ -119,16 +134,17 @@ async function processPDFs(files) {
     throw new Error(error.message);
   }
 
-  // 直接返回 15 欄 JSON 陣列
+  // 返回 ProcessResponse（含 project_name + items）
   return await res.json();
 }
 
 // 使用
-const items = await processPDFs([pdf1, pdf2]);
-console.log(items);
+const result = await processPDFs([pdf1, pdf2]);
+console.log(result.project_name);  // "SOLAIRE BAY TOWER"
+console.log(result.items);
 // [
-//   { no: 1, item_no: "DLX-101", description: "...", photo: "...", ... },
-//   { no: 2, item_no: "DLX-102", ... }
+//   { no: 1, item_no: "DLX-101", category: 1, affiliate: null, ... },
+//   { no: 2, item_no: "FAB-001", category: 5, affiliate: "DLX-101", ... }
 // ]
 ```
 

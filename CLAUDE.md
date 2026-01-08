@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-家具報價單自動化系統 - 上傳 BOQ（Bill of Quantities）PDF 檔案，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單（15 欄）。
+家具報價單自動化系統 - 上傳 BOQ（Bill of Quantities）PDF 檔案，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單（17 欄）。
 
 **API 基礎路徑**: `/api/v1/`
 
@@ -208,9 +208,10 @@ image_extraction:
 # 內部使用
 BOQItem          # 完整資料模型，含追蹤欄位（source_type, qty_verified, merge_status 等）
 
-# API 回傳
-BOQItemResponse  # 15 欄位 DTO，隱藏內部欄位
-# 轉換：BOQItemResponse.from_boq_item(item)
+# API 回傳（/process 端點）
+ProcessResponse  # 包含 project_name + items 列表
+FairmontItemResponse  # 17 欄位 DTO（含 category, affiliate）
+# 轉換：FairmontItemResponse.from_boq_item(item)
 ```
 
 ### 錯誤處理
@@ -239,7 +240,10 @@ def get_my_service() -> MyService:
 
 ## 惠而蒙 Excel 格式
 
-15 欄：NO. / Item no. / Description / Photo / Dimension / Qty / UOM / Unit Rate / Amount / Unit CBM / Total CBM / Note / Location / Materials / Brand
+17 欄：NO. / Item no. / Description / Photo / Dimension / Qty / UOM / Unit Rate / Amount / Unit CBM / Total CBM / Note / Location / Materials / Brand / Category / Affiliate
+
+- **Category**: 分類（1=家具, 5=面料）
+- **Affiliate**: 附屬 - 面料來源的家具編號，多個用 `, ` 分隔；家具此欄位為 null
 
 配置：`skills/output-formats/fairmont.yaml`
 
@@ -253,12 +257,20 @@ Authorization: Bearer <API_KEY>
 Content-Type: multipart/form-data
 ```
 
-上傳 PDF → 直接返回 15 欄 JSON 陣列。處理時間約 1-6 分鐘，前端 timeout 建議 **360 秒以上**。
+上傳 PDF → 返回 `ProcessResponse`（含 `project_name` + `items` 列表）。處理時間約 1-6 分鐘，前端 timeout 建議 **360 秒以上**。
 
 | 參數 | 類型 | 說明 |
 |------|------|------|
 | files | File[] | PDF 檔案（最多 5 個，單檔 ≤ 50MB）|
 | extract_images | bool | 是否提取圖片（預設 true）|
+
+**回傳結構**：
+```json
+{
+  "project_name": "SOLAIRE BAY TOWER",
+  "items": [{ "no": 1, "item_no": "DLX-100", ... }]
+}
+```
 
 ### 其他端點
 

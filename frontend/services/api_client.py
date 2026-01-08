@@ -2,6 +2,7 @@
 
 import httpx
 import logging
+import os
 import time
 from typing import Dict, Any, List
 from pathlib import Path
@@ -13,15 +14,17 @@ logger = logging.getLogger(__name__)
 class APIClient:
     """Synchronous client for interacting with the backend API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: str | None = None):
         """
         Initialize API client.
 
         Args:
             base_url: Backend API base URL
+            api_key: API key for authentication (optional, reads from env if not provided)
         """
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.Client(timeout=300)
+        self.api_key = api_key or os.getenv("API_KEY", "")
+        self.client = httpx.Client(timeout=600)  # 增加 timeout 以支援長時間處理
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -434,3 +437,102 @@ class APIClient:
         except Exception as e:
             logger.error(f"Failed to list tasks: {e}")
             raise
+
+    def process_files(
+        self,
+        files: List[tuple[str, bytes]] | List[Path],
+        extract_images: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        使用單一 API 端點處理 PDF 檔案並直接返回 17 欄 JSON 結果。
+
+        這是新的整合 API，上傳 PDF 後直接返回解析結果，無需多步驟操作。
+        返回結果包含 project_name 與 items 列表。
+
+        每個 item 包含 17 個欄位：
+        - 原有 15 欄：no, item_no, description, photo, dimension, qty, uom,
+                     unit_rate, amount, unit_cbm, total_cbm, note, location,
+                     materials_specs, brand
+        - 新增 2 欄：category (1=家具, 5=面料), affiliate (面料來源家具編號)
+
+        Args:
+            files: List of (filename, content) tuples or file paths to upload
+            extract_images: Whether to extract images during parsing
+
+        Returns:
+            處理結果:
+            {
+                "success": True,
+                "data": {
+                    "project_name": "SOLAIRE BAY TOWER",
+                    "items": [
+                        {
+                            "no": 1,
+                            "item_no": "DLX-101",
+                            "description": "King Bed",
+                            "category": 1,
+                            "affiliate": null,
+                            ...
+                        },
+                        ...
+                    ]
+                }
+            }
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        try:
+            file_list = []
+
+            for item in files:
+                if isinstance(item, Path):
+                    with open(item, "rb") as f:
+                        content = f.read()
+                    file_list.append(("files", (item.name, content, "application/pdf")))
+                else:
+                    filename, content = item
+                    file_list.append(("files", (filename, content, "application/pdf")))
+
+            headers = {}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+
+            response = self.client.post(
+                f"{self.base_url}/api/v1/process",
+                files=file_list,
+                params={"extract_images": extract_images},
+                headers=headers,
+            )
+            response.raise_for_status()
+
+            # API 返回 {project_name, items} 結構
+            result = response.json()
+            items = result.get("items", [])
+            project_name = result.get("project_name")
+            return {
+                "success": True,
+                "data": result,
+                "message": f"成功處理 {len(items)} 個項目" + (f" (專案: {project_name})" if project_name else ""),
+            }
+
+        except httpx.HTTPStatusError as e:
+            error_detail = ""
+            try:
+                error_json = e.response.json()
+                error_detail = error_json.get("message", str(e))
+            except Exception:
+                error_detail = str(e)
+            logger.error(f"Process files failed: {error_detail}")
+            return {
+                "success": False,
+                "data": None,
+                "message": error_detail,
+            }
+        except Exception as e:
+            logger.error(f"Process files failed: {e}")
+            return {
+                "success": False,
+                "data": None,
+                "message": str(e),
+            }

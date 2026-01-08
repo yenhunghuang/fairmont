@@ -99,6 +99,52 @@ class PDFParserService:
                 return system_prompt.strip()
         return None
 
+    def _find_specification_page_content(self, pdf_text: str, max_chars: int = 5000) -> str:
+        """
+        Find specification page content from PDF text.
+
+        Searches for content containing "ITEM NO.:" which indicates a spec page,
+        rather than index/cover pages. Extracts content from the nearest page
+        boundary before ITEM NO.
+
+        Args:
+            pdf_text: Full PDF text content
+            max_chars: Maximum characters to return
+
+        Returns:
+            Specification page content containing PROJECT field
+        """
+        # Look for specification page markers
+        spec_markers = ["ITEM NO.:", "ITEM NO:", "Item No.:"]
+
+        for marker in spec_markers:
+            marker_pos = pdf_text.find(marker)
+            if marker_pos != -1:
+                # Found spec page, look for page boundary before ITEM NO.
+                # Common page separators: multiple newlines, form feed, page markers
+                search_start = max(0, marker_pos - 1500)
+                prefix_text = pdf_text[search_start:marker_pos]
+
+                # Find the start of the spec page (look for PROJECT: before ITEM NO.)
+                project_pos = prefix_text.rfind("PROJECT:")
+                if project_pos == -1:
+                    project_pos = prefix_text.rfind("PROJECT :")
+                if project_pos == -1:
+                    project_pos = prefix_text.rfind("Project:")
+
+                if project_pos != -1:
+                    # Found PROJECT, start from there
+                    start_pos = search_start + project_pos
+                else:
+                    # No PROJECT found, use limited context before ITEM NO.
+                    start_pos = max(0, marker_pos - 500)
+
+                end_pos = min(len(pdf_text), marker_pos + 2000)
+                return pdf_text[start_pos:end_pos]
+
+        # Fallback: return first portion if no spec markers found
+        return pdf_text[:max_chars]
+
     def validate_pdf(self, file_path: str) -> tuple[int, bool]:
         """
         Validate PDF file.
@@ -414,8 +460,12 @@ class PDFParserService:
         # Get prompt template (from Skill or default)
         template = self._get_project_metadata_prompt_template()
 
-        # Format template with PDF content (limit to first 3000 chars for metadata)
-        prompt = template.format(pdf_content=pdf_text[:3000])
+        # Find specification page content (contains "ITEM NO.:")
+        # Skip index/cover pages and find the actual spec page with PROJECT field
+        spec_content = self._find_specification_page_content(pdf_text)
+
+        # Format template with spec page content
+        prompt = template.format(pdf_content=spec_content)
 
         start_time = datetime.utcnow()
         try:

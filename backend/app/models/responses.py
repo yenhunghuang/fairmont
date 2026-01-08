@@ -189,6 +189,50 @@ class FairmontItemResponse(BaseModel):
         }
 
 
+class ProcessResponse(BaseModel):
+    """
+    /api/v1/process API 回應結構.
+
+    包含專案名稱與 Fairmont 17 欄項目列表。
+    """
+
+    project_name: Optional[str] = Field(
+        None, description="專案名稱 (從 PDF 的 PROJECT 標題提取)"
+    )
+    items: List[FairmontItemResponse] = Field(
+        ..., description="Fairmont 17 欄項目列表"
+    )
+
+    class Config:
+        """Pydantic configuration."""
+        json_schema_extra = {
+            "example": {
+                "project_name": "SOLAIRE BAY TOWER",
+                "items": [
+                    {
+                        "no": 1,
+                        "item_no": "DLX-101",
+                        "description": "Custom Bed Bench",
+                        "photo": "iVBORw0KGgo...",
+                        "dimension": "1930 x 2130 x 290 H",
+                        "qty": 248.0,
+                        "uom": "ea",
+                        "unit_rate": None,
+                        "amount": None,
+                        "unit_cbm": 1.74,
+                        "total_cbm": None,
+                        "note": "Bed bases only",
+                        "location": "King DLX (A/B)",
+                        "materials_specs": "Vinyl: DLX-500 Taupe",
+                        "brand": "Fairmont",
+                        "category": 1,
+                        "affiliate": None,
+                    }
+                ],
+            }
+        }
+
+
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated response model."""
 

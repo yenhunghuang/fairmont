@@ -1,6 +1,6 @@
 """Process API route - 單一整合端點.
 
-提供簡化的 API 給前端：上傳 PDF → 直接返回 15 欄 JSON。
+提供簡化的 API 給前端：上傳 PDF → 返回 ProcessResponse（含 project_name + 17 欄 items）。
 整合現有的 PDF 解析、數量總表解析、跨表合併、面料排序功能。
 使用 skills yaml 配置來支援完整功能。
 """
@@ -10,7 +10,7 @@ import uuid
 from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Depends, Query
 
-from ...models import FairmontItemResponse, SourceDocument
+from ...models import FairmontItemResponse, ProcessResponse, SourceDocument
 from ...api.dependencies import (
     get_store_dependency,
     get_file_manager,
@@ -47,32 +47,32 @@ def _detect_document_type_from_filename(filename: str) -> str:
 
 @router.post(
     "/process",
-    response_model=List[FairmontItemResponse],
+    response_model=ProcessResponse,
     status_code=200,
-    summary="上傳 PDF 並直接返回 Fairmont 17 欄 JSON",
+    summary="上傳 PDF 並返回 Fairmont 17 欄 JSON（含專案名稱）",
 )
 async def process_pdfs(
     files: List[UploadFile] = File(..., description="PDF 檔案（最多 5 個，單檔 ≤ 50MB）"),
-    title: Optional[str] = Query(None, description="報價單標題"),
     extract_images: bool = Query(True, description="是否提取圖片"),
     store: InMemoryStore = Depends(get_store_dependency),
     file_manager: FileManager = Depends(get_file_manager),
     api_key: str = Depends(verify_api_key),  # API Key 認證
-) -> List[dict]:
+) -> ProcessResponse:
     """
-    上傳 PDF 檔案並直接返回 Fairmont 17 欄 JSON 陣列.
+    上傳 PDF 檔案並返回 Fairmont 17 欄 JSON（含專案名稱）.
 
     這是一個同步整合端點，將上傳、解析、合併全部在一個請求中完成。
     支援跨表合併：自動識別數量總表與明細規格表，執行合併與面料排序。
 
-    直接返回 items 陣列（無外層包裝），每個 item 完全符合 Fairmont Excel 格式。
+    回傳結構：
+    - **project_name**: 專案名稱（從 PDF 的 PROJECT 標題提取）
+    - **items**: Fairmont 17 欄項目列表
 
     欄位說明：
     - **category**: 分類（1=家具, 5=面料）
     - **affiliate**: 附屬 - 面料來源的家具編號，多個用 ', ' 分隔；家具此欄位為 null
 
     - **files**: PDF 檔案列表（最多 5 個，單檔最大 50MB）
-    - **title**: 報價單標題（可選）
     - **extract_images**: 是否提取圖片（預設為 True）
 
     **注意**: 此端點為同步操作，處理時間約 1-6 分鐘（視 PDF 頁數而定）。
@@ -128,6 +128,7 @@ async def process_pdfs(
         detail_boq_items = []
         total_images = 0
         matched_images = 0
+        collected_project_name: Optional[str] = None
 
         for doc in detail_docs:
             doc.parse_status = "processing"
@@ -141,9 +142,11 @@ async def process_pdfs(
                 extract_images=extract_images,
             )
 
-            # 儲存專案名稱
+            # 儲存專案名稱（取第一個找到的）
             if project_metadata:
                 doc.project_name = project_metadata.get("project_name")
+                if doc.project_name and not collected_project_name:
+                    collected_project_name = doc.project_name
 
             # 圖片提取和匹配
             if extract_images and boq_items:
@@ -209,9 +212,9 @@ async def process_pdfs(
             f"match_rate={merge_report.get_match_rate():.1%}"
         )
 
-        # 6. 轉換為 Fairmont 15 欄 DTO
+        # 6. 轉換為 Fairmont 17 欄 DTO
         items_response = [
-            FairmontItemResponse.from_boq_item(item).model_dump()
+            FairmontItemResponse.from_boq_item(item)
             for item in merged_items
         ]
 
@@ -222,8 +225,11 @@ async def process_pdfs(
             f"qty match rate: {merge_report.get_match_rate():.1%}"
         )
 
-        # 直接返回 items 陣列
-        return items_response
+        # 返回 ProcessResponse（含 project_name 與 items）
+        return ProcessResponse(
+            project_name=collected_project_name,
+            items=items_response,
+        )
 
     except Exception as e:
         log_error(e, context="Process PDFs")
