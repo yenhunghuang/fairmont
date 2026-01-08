@@ -8,7 +8,7 @@ services:
       - "8001:8000"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash-lite}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
       - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-600}
       - API_KEY=${API_KEY}
       - BACKEND_HOST=0.0.0.0
