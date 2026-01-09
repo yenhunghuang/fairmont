@@ -91,8 +91,11 @@ async def process_pdfs(
         for upload_order, (filename, content) in enumerate(validated_files):
             file_path = file_manager.save_upload_file(content, filename)
 
-            # 偵測文件角色
-            document_role, role_detected_by = role_detector.detect_role(filename)
+            # 偵測文件角色（優先用檔名，失敗時掃描內容）
+            document_role, role_detected_by = role_detector.detect_role_with_content(
+                filename=filename,
+                file_path=file_path,
+            )
 
             doc = SourceDocument(
                 filename=filename,
@@ -431,7 +434,12 @@ async def _process_with_progress(
 
     for upload_order, (filename, content) in enumerate(validated_files):
         file_path = file_manager.save_upload_file(content, filename)
-        document_role, role_detected_by = role_detector.detect_role(filename)
+
+        # 偵測文件角色（優先用檔名，失敗時掃描內容）
+        document_role, role_detected_by = role_detector.detect_role_with_content(
+            filename=filename,
+            file_path=file_path,
+        )
 
         doc = SourceDocument(
             filename=filename,

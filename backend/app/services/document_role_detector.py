@@ -2,10 +2,13 @@
 
 根據檔名關鍵字自動識別 PDF 文件在跨表合併中的角色。
 支援從 MergeRulesSkill 載入關鍵字配置，並提供 fallback 預設值。
+新增內容掃描功能，當檔名無法判斷時，掃描 PDF 前幾頁內容。
 """
 
 import logging
 from typing import Optional, Tuple
+
+import fitz  # PyMuPDF
 
 from app.models.source_document import DocumentRole, RoleDetectionMethod
 
@@ -33,6 +36,29 @@ DEFAULT_FLOOR_PLAN_KEYWORDS = [
     "平面圖",
     "平面",
     "配置圖",
+]
+
+# ============================================================
+# 內容掃描關鍵字（用於檔名無法判斷時）
+# ============================================================
+
+QUANTITY_CONTENT_KEYWORDS = [
+    "total qty",
+    "quantity summary",
+    "overall qty",
+    "qty summary",
+    "數量總表",
+    "總數量",
+    "total quantity",
+]
+
+DETAIL_CONTENT_KEYWORDS = [
+    "item no.:",
+    "item no:",
+    "project:",
+    "description:",
+    "furniture com:",
+    "attachments:",
 ]
 
 DEFAULT_DISPLAY_NAMES = {
@@ -127,6 +153,88 @@ class DocumentRoleDetectorService:
 
         # 預設為明細規格表
         return "detail_spec", "filename"
+
+    def detect_role_with_content(
+        self,
+        filename: str,
+        file_path: str,
+        scan_pages: int = 3,
+    ) -> Tuple[DocumentRole, RoleDetectionMethod]:
+        """
+        優先用檔名判斷，失敗時掃描內容.
+
+        當檔名無法明確判斷時（fallback 到 detail_spec），
+        會掃描 PDF 前幾頁內容來判斷文件角色。
+
+        Args:
+            filename: PDF 檔名
+            file_path: PDF 檔案路徑
+            scan_pages: 掃描前 N 頁（預設 3 頁）
+
+        Returns:
+            (角色, 偵測方式) 元組
+
+        Examples:
+            >>> service = DocumentRoleDetectorService()
+            >>> service.detect_role_with_content("random.pdf", "/path/to/qty.pdf")
+            ('quantity_summary', 'content')
+        """
+        # 1. 先嘗試檔名偵測
+        role, method = self.detect_role(filename)
+
+        # 如果檔名能明確判斷（非 fallback），直接返回
+        if role != "detail_spec":
+            logger.debug(f"Role detected by filename: {filename} → {role}")
+            return role, method
+
+        # 2. 檔名不明確時，掃描內容
+        try:
+            content_role = self._scan_content(file_path, scan_pages)
+            if content_role:
+                logger.info(
+                    f"Role detected by content scan: {filename} → {content_role}"
+                )
+                return content_role, "content"
+        except Exception as e:
+            logger.warning(f"Content scan failed for {filename}: {e}")
+
+        # 3. 最終 fallback
+        logger.debug(f"Role fallback to detail_spec: {filename}")
+        return role, method
+
+    def _scan_content(
+        self, file_path: str, max_pages: int = 3
+    ) -> Optional[DocumentRole]:
+        """
+        掃描 PDF 前幾頁內容判斷角色.
+
+        Args:
+            file_path: PDF 檔案路徑
+            max_pages: 掃描頁數上限
+
+        Returns:
+            偵測到的角色，或 None 表示無法判斷
+        """
+        doc = fitz.open(file_path)
+        try:
+            # 提取前 N 頁文字
+            text = ""
+            for i in range(min(max_pages, doc.page_count)):
+                text += doc[i].get_text().lower()
+
+            # 檢查數量總表關鍵字（優先）
+            for keyword in QUANTITY_CONTENT_KEYWORDS:
+                if keyword in text:
+                    return "quantity_summary"
+
+            # 檢查明細規格表關鍵字
+            for keyword in DETAIL_CONTENT_KEYWORDS:
+                if keyword in text:
+                    return "detail_spec"
+
+            return None
+        finally:
+            doc.close()
 
     def is_quantity_summary(self, filename: str) -> bool:
         """
