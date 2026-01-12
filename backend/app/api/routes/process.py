@@ -265,10 +265,9 @@ async def _process_core(
         f"match_rate={merge_report.get_match_rate():.1%}"
     )
 
-    # 4.5 根據上傳檔案類型過濾面料項目
-    uploaded_filenames = [filename for filename, _ in validated_files]
+    # 4.5 根據文件角色過濾面料項目
     fabric_validator = get_fabric_validator_service()
-    merged_items = fabric_validator.filter_by_uploaded_files(merged_items, uploaded_filenames)
+    merged_items = fabric_validator.filter_by_documents(merged_items, documents)
 
     await emit(
         ProcessingStage.MERGING,
