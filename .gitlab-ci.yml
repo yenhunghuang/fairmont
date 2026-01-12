@@ -1,0 +1,65 @@
+# GitLab CI/CD 配置 - SSH 自動部署
+#
+# 需要在 GitLab → Settings → CI/CD → Variables 設定：
+# - SSH_USER: SSH 登入帳號
+# - SSH_PRIVATE_KEY: SSH 私鑰（Type: Variable，勾選 Mask）
+# - SERVER_IP: 部署伺服器 IP（預設 192.168.0.83）
+# - PROJECT_PATH: 伺服器上的專案路徑
+
+stages:
+  - test
+  - deploy
+
+variables:
+  SERVER_IP: "192.168.0.83"
+  PROJECT_PATH: "/home/$SSH_USER/fairmont"  # 請根據實際路徑修改
+
+# 測試階段（可選）
+test:
+  stage: test
+  image: python:3.11
+  only:
+    - feature/single-process-api
+    - main
+    - merge_requests
+  before_script:
+    - cd backend
+    - pip install -r requirements.txt
+    - pip install -e ".[dev]"
+  script:
+    - pytest tests/unit/ -v --tb=short
+  allow_failure: false
+
+# 部署階段（只有 main 分支觸發）
+deploy:
+  stage: deploy
+  image: alpine:latest
+  only:
+    - main
+  before_script:
+    # 安裝 SSH 客戶端
+    - apk add --no-cache openssh-client
+    # 設定 SSH 私鑰
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    # 添加伺服器到 known_hosts（跳過驗證）
+    - ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - echo "Deploying to $SERVER_IP..."
+    - |
+      ssh $SSH_USER@$SERVER_IP << 'ENDSSH'
+        cd $PROJECT_PATH
+        echo "Pulling latest code..."
+        git pull origin $CI_COMMIT_REF_NAME
+        echo "Rebuilding Docker containers..."
+        docker-compose down
+        docker-compose up -d --build
+        echo "Checking container status..."
+        docker-compose ps
+        echo "Deployment completed!"
+      ENDSSH
+  environment:
+    name: production
+    url: http://192.168.0.83:8001

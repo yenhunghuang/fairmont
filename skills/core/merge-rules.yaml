@@ -41,21 +41,36 @@ role_detection:
       - "Overall Quantity"
     display_name: "數量總表"
 
-  # 明細規格表
+  # 家具明細規格表
   detail_spec:
     filename_keywords:
       - "casegoods"
       - "seating"
-      - "fabric"
       - "lighting"
       - "upholstered"
       - "specification"
       - "spec"
+      - "furniture"
     content_indicators:
       - "DESCRIPTION"
       - "FURNITURE COM:"
       - "ITEM NO.:"
-    display_name: "明細規格表"
+    display_name: "家具明細規格表"
+
+  # 面料明細規格表
+  fabric_spec:
+    filename_keywords:
+      - "fabric"
+      - "leather"
+      - "vinyl"
+      - "textile"
+      - "upholstery"
+    content_indicators:
+      - "ITEM:"
+      - "VENDOR:"
+      - "PATTERN:"
+      - "COLOR:"
+    display_name: "面料明細規格表"
 
   # 平面圖
   floor_plan:

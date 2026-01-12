@@ -5,7 +5,7 @@
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from ...models import (
@@ -14,9 +14,9 @@ from ...models import (
     ProcessingTask,
     MergeReport,
 )
-from ...api.dependencies import get_store_dependency
-from ...store import InMemoryStore
+from ...api.dependencies import StoreDep
 from ...services.merge_service import get_merge_service
+from ...store import InMemoryStore
 from ...services.quantity_parser import get_quantity_parser_service
 from ...utils import ErrorCode, raise_error, log_error
 
@@ -89,7 +89,8 @@ class MergeReportResponse(BaseModel):
 async def create_merged_quotation(
     request: MergeRequest,
     background_tasks: BackgroundTasks,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     從多個文件建立跨表合併報價單.
@@ -288,7 +289,8 @@ async def _merge_documents_background(
 )
 async def get_merge_report(
     quotation_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     取得報價單的跨表合併報告.

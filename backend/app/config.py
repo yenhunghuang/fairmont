@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     skills_dir: str = str(_PROJECT_ROOT / "skills")
     skills_cache_enabled: bool = True  # 生產環境啟用快取
 
+    # Store Cache Configuration
+    store_cache_enabled: bool = False  # 記憶體 TTL 快取開關（預設關閉）
+    store_cache_ttl: int = 3600  # 快取 TTL（秒），預設 1 小時
+
     # LangFuse Observability Configuration
     langfuse_enabled: bool = False  # 預設關閉，需設定 API Key 後啟用
     langfuse_public_key: str = ""

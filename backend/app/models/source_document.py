@@ -3,14 +3,26 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
+from enum import Enum
 import uuid
 
 
 # 文件角色類型定義
-DocumentRole = Literal["quantity_summary", "detail_spec", "floor_plan", "unknown"]
+# - detail_spec: 家具明細規格表（Casegoods & Seatings）
+# - fabric_spec: 面料明細規格表（Fabric/Leather/Vinyl specifications）
+DocumentRole = Literal["quantity_summary", "detail_spec", "fabric_spec", "floor_plan", "index", "unknown"]
 
 # 角色偵測方式
 RoleDetectionMethod = Literal["filename", "manual", "content"]
+
+
+class DocumentStatus(str, Enum):
+    """Processing status for a document."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class SourceDocument(BaseModel):
@@ -63,9 +75,18 @@ class SourceDocument(BaseModel):
         "filename", description="角色偵測方式"
     )
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
+    # Pipeline 擴展欄位 (SQLite multi-stage pipeline)
+    session_id: Optional[str] = Field(None, description="處理 Session ID")
+    file_hash: Optional[str] = Field(None, description="檔案內容 Hash (用於重複檢測)")
+    processing_status: DocumentStatus = Field(
+        DocumentStatus.PENDING, description="Pipeline 處理狀態"
+    )
+    processing_stage: int = Field(0, ge=0, le=7, description="目前處理階段 (0-7)")
+    vendor_id: str = Field("habitus", description="供應商識別碼")
+
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
             "example": {
                 "filename": "BOQ_2025_Q1.pdf",
                 "file_path": "/tmp/uploads/doc-123.pdf",
@@ -73,4 +94,23 @@ class SourceDocument(BaseModel):
                 "document_type": "boq",
                 "parse_status": "pending",
             }
-        }
+        },
+    }
+
+
+class DocumentProgressResponse(BaseModel):
+    """API response model for document progress within a session.
+
+    Used within SessionProgressResponse to report per-document status.
+    """
+
+    document_id: str
+    filename: str
+    processing_status: DocumentStatus
+    processing_stage: int = Field(ge=0, le=7)
+    total_pages: Optional[int] = None
+    items_extracted: int = 0
+    images_extracted: int = 0
+    error_message: Optional[str] = None
+
+    model_config = {"from_attributes": True}

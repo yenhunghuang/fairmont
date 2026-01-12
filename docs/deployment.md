@@ -127,3 +127,6 @@ Authorization: Bearer <your-api-key>
 | `API_KEY` | ✅ | - | Bearer Token 認證金鑰 |
 | `MAX_FILE_SIZE_MB` | ❌ | `50` | 單檔最大 MB |
 | `MAX_FILES` | ❌ | `5` | 單次最多檔案數 |
+| `SKILLS_CACHE_ENABLED` | ❌ | `true` | Skills YAML 快取開關 |
+| `STORE_CACHE_ENABLED` | ❌ | `false` | 記憶體 TTL 快取開關 |
+| `STORE_CACHE_TTL` | ❌ | `3600` | 記憶體快取 TTL（秒）|

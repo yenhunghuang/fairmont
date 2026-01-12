@@ -137,9 +137,10 @@ class TestDocumentRoleDetectorService:
             assert method == "filename"
 
         def test_detect_fabric(self, service: DocumentRoleDetectorService):
-            """測試 Fabric 檔案."""
+            """測試 Fabric 檔案（現在識別為 fabric_spec）."""
             role, method = service.detect_role("Fabric & Leather.pdf")
-            assert role == "detail_spec"
+            assert role == "fabric_spec"
+            assert method == "filename"
 
         def test_detect_furniture_spec(self, service: DocumentRoleDetectorService):
             """測試 Furniture spec 檔案."""
@@ -223,7 +224,8 @@ class TestDocumentRoleDetectorService:
         def test_get_role_display_name(self, service: DocumentRoleDetectorService):
             """測試中文顯示名稱."""
             assert service.get_role_display_name("quantity_summary") == "數量總表"
-            assert service.get_role_display_name("detail_spec") == "明細規格表"
+            assert service.get_role_display_name("detail_spec") == "家具明細規格表"
+            assert service.get_role_display_name("fabric_spec") == "面料明細規格表"
             assert service.get_role_display_name("floor_plan") == "平面圖"
             assert service.get_role_display_name("unknown") == "未知"
 
