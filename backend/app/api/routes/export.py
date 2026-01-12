@@ -2,12 +2,12 @@
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ...models import Quotation, BOQItem, ProcessingTask, APIResponse, BOQItemResponse
-from ...api.dependencies import get_store_dependency
+from ...api.dependencies import StoreDep
 from ...services.excel_generator import get_excel_generator
 from ...store import InMemoryStore
 from ...utils import log_error
@@ -42,7 +42,8 @@ class UpdateItemsRequest(BaseModel):
 )
 async def create_quotation(
     request: CreateQuotationRequest,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     從已解析的文件建立報價單.
@@ -101,7 +102,8 @@ async def create_quotation(
 )
 async def get_quotation(
     quotation_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """取得報價單詳細資訊."""
     try:
@@ -125,7 +127,8 @@ async def get_quotation(
 )
 async def get_quotation_items(
     quotation_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """取得報價單中的所有項目."""
     try:
@@ -153,7 +156,8 @@ async def get_quotation_items(
 async def update_quotation_items(
     quotation_id: str,
     request: UpdateItemsRequest,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     批次更新報價單中的項目資料.
@@ -215,7 +219,8 @@ async def get_quotation_excel(
     background_tasks: BackgroundTasks,
     include_photos: bool = True,
     photo_height_cm: float = 3.0,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ):
     """
     取得報價單的 Excel 檔案（冪等操作）.

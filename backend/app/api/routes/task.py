@@ -2,11 +2,10 @@
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from ...models import APIResponse
-from ...api.dependencies import get_store_dependency
-from ...store import InMemoryStore
+from ...api.dependencies import StoreDep
 from ...utils import log_error
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,8 @@ router = APIRouter(prefix="/api/v1", tags=["Task"])
 )
 async def get_task_status(
     task_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     取得後台任務的狀態與進度.
@@ -62,7 +62,8 @@ async def get_task_status(
 async def list_tasks(
     limit: int = Query(20, le=100, description="回傳數量限制"),
     status: Optional[str] = Query(None, regex="^(pending|processing|completed|failed)$", description="篩選狀態"),
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     取得所有任務列表.

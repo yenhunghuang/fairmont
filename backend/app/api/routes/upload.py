@@ -1,54 +1,23 @@
 """Upload API routes with auto-parsing."""
 
-import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from ...api.dependencies import (
-    get_file_manager,
-    get_file_validator,
-    get_store_dependency,
+    FileManagerDep,
+    FileValidatorDep,
+    StoreDep,
     validate_pdf_files,
 )
 from ...models import APIResponse, ProcessingTask, SourceDocument
-from ...services.image_extractor import get_image_extractor
-from ...services.image_matcher_deterministic import get_deterministic_image_matcher
 from ...services.document_role_detector import get_document_role_detector_service
+from ...services.parsing_service import parse_pdf_background
 from ...services.pdf_parser import get_pdf_parser
-from ...store import InMemoryStore
-from ...utils import FileManager, FileValidator, log_error
+from ...utils import log_error, raise_error, ErrorCode, APIError
 
 logger = logging.getLogger(__name__)
-
-# Gemini API 並發控制：限制同時解析的 PDF 數量，避免 API 限流
-_parsing_semaphore = asyncio.Semaphore(2)
-
-
-def _detect_document_type_from_filename(filename: str) -> str:
-    """從檔名偵測文件類型.
-
-    Args:
-        filename: PDF 檔名
-
-    Returns:
-        文件類型識別碼（furniture_specification, fabric_specification, quantity_summary）
-    """
-    filename_lower = filename.lower()
-
-    # 家具類：Casegoods, Seating, Lighting
-    if any(kw in filename_lower for kw in ["casegoods", "seating", "lighting"]):
-        return "furniture_specification"
-    # 面料類：Fabric, Leather, Vinyl
-    elif any(kw in filename_lower for kw in ["fabric", "leather", "vinyl"]):
-        return "fabric_specification"
-    # 數量總表：Qty, Overall, Summary, Quantity
-    elif any(kw in filename_lower for kw in ["qty", "overall", "summary", "quantity"]):
-        return "quantity_summary"
-
-    # 預設為家具明細
-    return "furniture_specification"
 
 router = APIRouter(prefix="/api/v1", tags=["Upload"])
 
@@ -63,9 +32,10 @@ async def upload_files(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     extract_images: bool = Query(True, description="是否提取圖片"),
-    store: InMemoryStore = Depends(get_store_dependency),
-    file_manager: FileManager = Depends(get_file_manager),
-    validator: FileValidator = Depends(get_file_validator),
+    *,
+    store: StoreDep,
+    file_manager: FileManagerDep,
+    validator: FileValidatorDep,
 ) -> dict:
     """
     上傳單一或多個 PDF 檔案，並自動啟動解析.
@@ -152,7 +122,7 @@ async def upload_files(
 
                     # 排程背景解析任務
                     background_tasks.add_task(
-                        _parse_pdf_background,
+                        parse_pdf_background,
                         document_id=doc.id,
                         task_id=task.task_id,
                         store=store,
@@ -191,141 +161,6 @@ async def upload_files(
         raise
 
 
-async def _parse_pdf_background(
-    document_id: str,
-    task_id: str,
-    store: InMemoryStore,
-    extract_images: bool = True,
-    target_categories: list[str] | None = None,
-) -> None:
-    """背景任務：PDF 解析."""
-    async with _parsing_semaphore:
-        await _do_parse_pdf(document_id, task_id, store, extract_images, target_categories)
-
-
-async def _do_parse_pdf(
-    document_id: str,
-    task_id: str,
-    store: InMemoryStore,
-    extract_images: bool = True,
-    target_categories: list[str] | None = None,
-) -> None:
-    """實際執行 PDF 解析邏輯."""
-    try:
-        # Get task and update status
-        task = store.get_task(task_id)
-        task.status = "processing"
-        task.message = "正在解析 PDF..."
-        task.update_progress(10, "正在解析 PDF...")
-        store.update_task(task)
-
-        # Get document
-        document = store.get_document(document_id)
-
-        # Parse PDF with Gemini
-        parser = get_pdf_parser()
-        boq_items, image_paths, project_metadata = await parser.parse_boq_with_gemini(
-            file_path=document.file_path,
-            document_id=document_id,
-            extract_images=extract_images,
-            target_categories=target_categories,
-        )
-
-        # Store project metadata in document
-        if project_metadata:
-            document.project_name = project_metadata.get("project_name")
-
-        task.update_progress(70, "正在提取圖片...")
-
-        # Extract images and use Gemini Vision to match with BOQ items
-        extractor = get_image_extractor()
-        matched_count = 0
-        images_with_bytes = []
-
-        if extract_images:
-            # Extract all images (unified matcher handles filtering + matching)
-            images_with_bytes = extractor.extract_images_with_bytes(
-                document.file_path, document_id
-            )
-
-            if images_with_bytes and boq_items:
-                task.update_progress(75, "正在匹配圖片到項目...")
-
-                # Detect document type from filename for page offset configuration
-                document_type = _detect_document_type_from_filename(document.filename)
-
-                # Use deterministic algorithm: match based on page location + image size
-                # Rule-based approach: items on page N → images on page N+offset, select largest image
-                # Automatically excludes logos/icons (small area) and selects product samples
-                matcher = get_deterministic_image_matcher(vendor_id="habitus")
-                page_offset = matcher.get_page_offset(document_type)
-
-                logger.info(
-                    f"Image matching: document_type={document_type}, page_offset={page_offset}"
-                )
-
-                image_to_item_map = await matcher.match_images_to_items(
-                    images_with_bytes,
-                    boq_items,
-                    target_page_offset=page_offset,
-                )
-
-                # Apply matches - convert to Base64 and assign to items
-                for img_idx, item_id in image_to_item_map.items():
-                    if img_idx < len(images_with_bytes):
-                        # Convert to Base64
-                        img_data = images_with_bytes[img_idx]
-                        base64_str = extractor._convert_to_base64(img_data["bytes"])
-
-                        # Find the matching BOQ item
-                        item = next((i for i in boq_items if i.id == item_id), None)
-                        if item:
-                            item.photo_base64 = base64_str
-                            matched_count += 1
-
-                logger.info(f"Matched {matched_count} images to items using deterministic algorithm (page location + image size)")
-
-        task.update_progress(80, "正在儲存結果...")
-
-        # Store items (now with photo_base64)
-        for item in boq_items:
-            store.add_boq_item(item)
-
-        # Update document
-        document.parse_status = "completed"
-        document.parse_message = f"成功解析 {len(boq_items)} 個項目"
-        document.extracted_items_count = len(boq_items)
-        document.extracted_images_count = len(images_with_bytes)
-        store.update_document(document)
-
-        # Complete task
-        task.complete(result={
-            "document_id": document_id,
-            "items_count": len(boq_items),
-            "images_count": len(images_with_bytes),
-            "matched_count": matched_count,
-        })
-        store.update_task(task)
-
-        logger.info(f"Successfully parsed document {document_id}: {len(boq_items)} items, {len(images_with_bytes)} images, {matched_count} matched")
-
-    except Exception as e:
-        logger.error(f"Error parsing document {document_id}: {e}")
-        log_error(e, context=f"Parse PDF: {document_id}")
-
-        try:
-            task = store.get_task(task_id)
-            task.fail(str(e))
-            store.update_task(task)
-
-            document = store.get_document(document_id)
-            document.parse_status = "failed"
-            document.parse_error = str(e)
-            store.update_document(document)
-        except Exception as inner_e:
-            logger.error(f"Failed to update task status: {inner_e}")
-
-
 @router.get(
     "/documents",
     response_model=APIResponse,
@@ -333,8 +168,9 @@ async def _do_parse_pdf(
 )
 async def list_documents(
     limit: int = 20,
-    status: str = None,
-    store: InMemoryStore = Depends(get_store_dependency),
+    status: str | None = None,
+    *,
+    store: StoreDep,
 ) -> dict:
     """
     取得已上傳文件列表.
@@ -373,7 +209,8 @@ async def list_documents(
 )
 async def get_document(
     document_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
+    *,
+    store: StoreDep,
 ) -> dict:
     """取得單一文件的詳細資訊."""
     try:
@@ -395,8 +232,9 @@ async def get_document(
 )
 async def delete_document(
     document_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
-    file_manager: FileManager = Depends(get_file_manager),
+    *,
+    store: StoreDep,
+    file_manager: FileManagerDep,
 ) -> dict:
     """刪除已上傳的文件及其相關資料."""
     try:
@@ -437,8 +275,9 @@ async def delete_document(
 )
 async def get_image(
     image_id: str,
-    store: InMemoryStore = Depends(get_store_dependency),
-    file_manager: FileManager = Depends(get_file_manager),
+    *,
+    store: StoreDep,
+    file_manager: FileManagerDep,
 ):
     """取得已提取的圖片檔案."""
     try:
@@ -446,10 +285,7 @@ async def get_image(
 
         # Check if file exists
         if not file_manager.file_exists(image.file_path):
-            raise HTTPException(
-                status_code=404,
-                detail="圖片檔案不存在",
-            )
+            raise_error(ErrorCode.FILE_NOT_FOUND, "圖片檔案不存在", status_code=404)
 
         # Determine media type from image format
         media_type_map = {
@@ -469,7 +305,7 @@ async def get_image(
             filename=image.filename,
         )
 
-    except HTTPException:
+    except APIError:
         raise
     except Exception as e:
         log_error(e, context=f"Get image: {image_id}")
