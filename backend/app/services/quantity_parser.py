@@ -14,7 +14,7 @@ from typing import List, Optional, Tuple
 import fitz  # PyMuPDF
 import google.generativeai as genai
 
-from ..config import get_settings
+from ..config import settings
 from ..models.quantity_summary import QuantitySummaryItem
 from .observability import get_observability, TraceMetadata
 
@@ -34,16 +34,15 @@ class QuantityParserService:
         self.vendor_id = vendor_id
         self._skill = None
         self._prompts_loaded = False
-        self.settings = get_settings()
 
         # Load Skill config if vendor_id provided
         if vendor_id:
             self._load_skill_config(vendor_id)
 
         # Initialize Gemini model
-        if self.settings.gemini_api_key:
-            genai.configure(api_key=self.settings.gemini_api_key)
-            self.model = genai.GenerativeModel(self.settings.gemini_model)
+        if settings.gemini_api_key:
+            genai.configure(api_key=settings.gemini_api_key)
+            self.model = genai.GenerativeModel(settings.gemini_model)
         else:
             self.model = None
             logger.warning("Gemini API key not configured")
@@ -124,8 +123,8 @@ class QuantityParserService:
             skill_version=skill_version,
             document_id=document_id,
             operation="quantity_summary_extraction",
-            model=self.settings.gemini_model,
-            environment=self.settings.environment,
+            model=settings.gemini_model,
+            environment=settings.environment,
         )
 
         try:
@@ -145,7 +144,7 @@ class QuantityParserService:
             start_time = datetime.utcnow()
             response = await asyncio.wait_for(
                 asyncio.to_thread(self.model.generate_content, prompt),
-                timeout=self.settings.gemini_timeout_seconds,
+                timeout=settings.gemini_timeout_seconds,
             )
 
             # Track successful call
@@ -171,7 +170,7 @@ class QuantityParserService:
             return items
 
         except asyncio.TimeoutError:
-            error_msg = f"Gemini API 呼叫超時（{self.settings.gemini_timeout_seconds} 秒）"
+            error_msg = f"Gemini API 呼叫超時（{settings.gemini_timeout_seconds} 秒）"
             logger.error(f"Gemini API timeout for quantity summary {file_path}")
 
             # Track timeout

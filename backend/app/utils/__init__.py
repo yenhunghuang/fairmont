@@ -2,7 +2,7 @@
 
 from .errors import APIError, ErrorCode, raise_error, log_error
 from .file_manager import FileManager
-from .validators import FileValidator, DataValidator
+from .validators import FileValidator
 
 __all__ = [
     "APIError",
@@ -11,5 +11,4 @@ __all__ = [
     "log_error",
     "FileManager",
     "FileValidator",
-    "DataValidator",
 ]

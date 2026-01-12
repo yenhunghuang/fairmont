@@ -1,6 +1,5 @@
 """Application configuration module."""
 
-import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
@@ -44,8 +43,7 @@ class Settings(BaseSettings):
     skills_dir: str = str(_PROJECT_ROOT / "skills")
     skills_cache_enabled: bool = True  # 生產環境啟用快取
 
-    # Store Cache Configuration
-    store_cache_enabled: bool = False  # 記憶體 TTL 快取開關（預設關閉）
+    # Store Configuration
     store_cache_ttl: int = 3600  # 快取 TTL（秒），預設 1 小時
 
     # LangFuse Observability Configuration
@@ -100,10 +98,5 @@ class Settings(BaseSettings):
     }
 
 
-def get_settings() -> Settings:
-    """Get application settings instance."""
-    return Settings()
-
-
 # Global settings instance
-settings = get_settings()
+settings = Settings()
