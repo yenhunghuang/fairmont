@@ -89,6 +89,7 @@ tmp/
 *.tmp
 *.temp
 *.bak
+tmpclaude-*/
 
 # Upload/Download directories
 uploads/
