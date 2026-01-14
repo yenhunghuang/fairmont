@@ -362,6 +362,10 @@ async def process_pdfs(
             f"qty match rate: {result.statistics['merge_match_rate']:.1%}"
         )
 
+        # Debug: 記錄所有 item_no 以便追蹤遺失問題
+        item_nos = [item.item_no for item in items_response]
+        logger.debug(f"Sync items count: {len(items_response)}, item_nos: {item_nos}")
+
         return ProcessResponse(
             project_name=result.project_name,
             items=items_response,
@@ -454,8 +458,19 @@ async def process_pdfs_stream(
             progress_callback=emit_progress,
         )
 
-        # 轉換為 DTO
+        # 轉換為 DTO - 與 /process 端點完全一致
         items_response = [FairmontItemResponse.from_boq_item(item) for item in result.merged_items]
+
+        # 記錄統計資訊（與同步版本一致）
+        logger.info(
+            f"Stream process completed: {result.statistics['total_items']} items, "
+            f"{result.statistics['images_matched']}/{result.statistics['images_total']} images matched, "
+            f"qty match rate: {result.statistics['merge_match_rate']:.1%}"
+        )
+
+        # Debug: 記錄所有 item_no 以便追蹤遺失問題
+        item_nos = [item.item_no for item in items_response]
+        logger.debug(f"Stream items count: {len(items_response)}, item_nos: {item_nos}")
 
         return {
             "project_name": result.project_name,
@@ -518,17 +533,23 @@ async def process_pdfs_stream(
 
         if error:
             error_code = getattr(error, "error_code", "INTERNAL_ERROR")
+            logger.error(f"Stream processing error: {error}")
             yield format_error_event(
                 code=str(error_code),
                 message=str(error),
                 stage=current_stage.value if current_stage else None,
             )
         elif result:
+            # 確保結果完整性
+            items_count = len(result.get("items", []))
+            logger.info(f"Stream yielding result: {items_count} items")
             yield format_result_event(
                 project_name=result["project_name"],
                 items=result["items"],
                 statistics=result["statistics"],
             )
+        else:
+            logger.warning("Stream completed but no result or error")
 
     return StreamingResponse(
         event_generator(),

@@ -305,15 +305,15 @@ def get_deterministic_image_matcher(vendor_id: Optional[str] = "habitus") -> Det
                    Defaults to "habitus" to load vendor skill configuration.
 
     Returns:
-        DeterministicImageMatcher instance
+        DeterministicImageMatcher instance (singleton for default vendor_id)
     """
     global _matcher_instance
 
-    # If vendor_id specified, create vendor-specific instance
-    if vendor_id is not None:
-        return DeterministicImageMatcher(vendor_id=vendor_id)
+    # Use singleton for default vendor_id ("habitus")
+    if vendor_id == "habitus":
+        if _matcher_instance is None:
+            _matcher_instance = DeterministicImageMatcher(vendor_id="habitus")
+        return _matcher_instance
 
-    # Otherwise, return default singleton (with habitus skill)
-    if _matcher_instance is None:
-        _matcher_instance = DeterministicImageMatcher(vendor_id="habitus")
-    return _matcher_instance
+    # For other vendor_ids (or None), create new instance
+    return DeterministicImageMatcher(vendor_id=vendor_id)

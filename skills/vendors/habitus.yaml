@@ -361,7 +361,7 @@ prompts:
       # ========== 欄位規則摘要 ==========
       | 欄位 | furniture | fabric |
       |------|-----------|--------|
-      | category | Casegoods/Seating/Lighting | Fabric/Leather/Vinyl（ITEM 含 "@"）|
+      | category | **必須填 "furniture"**（來源：Casegoods/Seating/Lighting） | **必須填 "fabric"**（來源：Fabric/Leather/Vinyl，ITEM 含 "@"）|
       | description | 品名（如 King Bed） | "<類型> to <家具編號>"（如 Vinyl to DLX-100）|
       | dimension | W x D x H mm 或 Dia.{{直徑}} x H{{高}} | 材料類型-Vendor-Pattern-Color-Width plain/pattern |
       | qty | null（數量從數量總表取得） | null（數量從數量總表取得）|
@@ -445,11 +445,13 @@ prompts:
       - 若整份文件無法解析，返回 []
 
       # ========== 完整輸出範例 ==========
+      **重要**：category 欄位必須統一填 "furniture" 或 "fabric"，即使 PDF 中顯示 "Casegoods"、"Seating" 等也要轉換。
+
       ```json
       [
         {{
           "source_page": 3,
-          "category": "Seating",
+          "category": "furniture",
           "item_no": "DLX-100",
           "description": "King Sized Bed",
           "dimension": "W2000 x D2100 x H1200 mm",
@@ -463,7 +465,7 @@ prompts:
         }},
         {{
           "source_page": 5,
-          "category": "Vinyl",
+          "category": "fabric",
           "item_no": "DLX-500",
           "description": "Vinyl to DLX-100, DLX-103",
           "dimension": "Vinyl-Morbern Europe-Prodigy PRO 682-Lt Neutral-137cmW plain",
@@ -477,7 +479,7 @@ prompts:
         }},
         {{
           "source_page": 7,
-          "category": "Fabric",
+          "category": "fabric",
           "item_no": "DLX-501",
           "description": "Fabric to DLX-100.1, DLX-103.1",
           "dimension": " Fabric-Casamance-Jardin Neroli 42210236-Multico-140cmW pattern",
@@ -491,7 +493,7 @@ prompts:
         }},
         {{
           "source_page": 9,
-          "category": "Fabric",
+          "category": "fabric",
           "item_no": "DLX-502",
           "description": "Fabric to DLX-100.2, DLX-103.2",
           "dimension": "Fabric-Camengo-Adastra-Brique-N/A plain",

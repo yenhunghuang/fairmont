@@ -1,8 +1,15 @@
 """Streamlit main application - 使用 /api/v1/process 單一 API 端點."""
 
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 載入 .env 檔案（從專案根目錄）
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
 import streamlit as st
 import pandas as pd
-import os
 from styles import apply_poc_styles
 
 
@@ -31,11 +38,11 @@ def init_session_state():
 
     # Workflow step: upload or results
     if "step" not in st.session_state:
-        st.session_state.step = "upload"
+        st.session_state["step"] = "upload"
 
     # Processing results
-    if "items" not in st.session_state:
-        st.session_state.items = None
+    if "parsed_items" not in st.session_state:
+        st.session_state["parsed_items"] = None
 
 
 def get_api_client():
@@ -53,7 +60,7 @@ def show_step_indicator():
     """顯示簡單的步驟指示器"""
     steps = ["📤 上傳處理", "📊 檢視結果"]
     step_indices = {"upload": 0, "results": 1}
-    current_step = step_indices.get(st.session_state.step, 0)
+    current_step = step_indices.get(st.session_state.get("step", "upload"), 0)
 
     step_html = '<div style="display: flex; justify-content: center; gap: 2rem; padding: 0.5rem 0;">'
     for i, step in enumerate(steps):
@@ -129,13 +136,25 @@ def show_upload_page():
                 st.markdown(f"• **{file.name}** ({file_size_mb:.2f} MB)")
 
         if upload_clicked:
-            # Show processing message
+            # Show processing message with detailed progress
             progress_placeholder = st.empty()
             status_placeholder = st.empty()
+            detail_placeholder = st.empty()
 
             with progress_placeholder.container():
                 st.info("⏳ 正在處理中，請稍候... (約需 1-5 分鐘)")
                 progress_bar = st.progress(0)
+
+            # 進度階段對應的中文名稱和圖示
+            stage_labels = {
+                "validating": ("📋", "檔案驗證"),
+                "detecting_roles": ("🔍", "文件角色偵測"),
+                "parsing_detail_specs": ("📄", "解析明細規格表"),
+                "parsing_quantity_summary": ("📊", "解析數量總表"),
+                "merging": ("🔗", "跨表合併"),
+                "converting": ("🔄", "轉換輸出格式"),
+                "completed": ("✅", "完成"),
+            }
 
             try:
                 client = get_api_client()
@@ -143,47 +162,108 @@ def show_upload_page():
                 # Convert to file format
                 files_data = [(f.name, f.read()) for f in uploaded_files]
 
-                # Update progress
-                progress_bar.progress(10)
-                status_placeholder.text("📤 上傳檔案中...")
+                # 定義進度回調函數
+                def handle_progress(data):
+                    stage = data.get("stage", "")
+                    progress = data.get("progress", 0)
+                    message = data.get("message", "")
+                    detail = data.get("detail", {})
 
-                # Call process API
-                progress_bar.progress(20)
-                status_placeholder.text("🔄 AI 解析中... (這可能需要幾分鐘)")
+                    # 更新進度條
+                    progress_bar.progress(progress)
 
-                response = client.process_files(files_data)
+                    # 更新狀態訊息
+                    icon, label = stage_labels.get(stage, ("⏳", stage))
+                    status_placeholder.markdown(
+                        f"**{icon} {label}** ({progress}%): {message}"
+                    )
+
+                    # 顯示詳細資訊
+                    if detail:
+                        detail_info = []
+                        if detail.get("current_file"):
+                            detail_info.append(f"📄 {detail['current_file']}")
+                        if detail.get("current_file_index") is not None and detail.get("total_files"):
+                            detail_info.append(
+                                f"檔案 {detail['current_file_index']}/{detail['total_files']}"
+                            )
+                        if detail.get("items_parsed") is not None:
+                            detail_info.append(f"已解析 {detail['items_parsed']} 個項目")
+
+                        if detail_info:
+                            detail_placeholder.caption(" | ".join(detail_info))
+
+                def handle_result(data):
+                    # 結果會在最後處理
+                    pass
+
+                def handle_error(data):
+                    # 錯誤會在 response 中處理
+                    pass
+
+                # Call SSE stream API
+                status_placeholder.text("📤 正在上傳並處理...")
+                response = client.process_files_stream(
+                    files_data,
+                    on_progress=handle_progress,
+                    on_result=handle_result,
+                    on_error=handle_error,
+                )
 
                 progress_bar.progress(100)
 
                 if not response.get("success"):
                     progress_placeholder.empty()
+                    status_placeholder.empty()
+                    detail_placeholder.empty()
                     st.error(f"❌ 處理失敗：{response.get('message', '未知錯誤')}")
                     return
 
                 data = response.get("data", {})
-                items = data.get("items", []) if isinstance(data, dict) else data
-                project_name = data.get("project_name") if isinstance(data, dict) else None
+                items = data.get("items", [])
+                project_name = data.get("project_name")
+                statistics = data.get("statistics", {})
 
                 if not items:
                     progress_placeholder.empty()
+                    status_placeholder.empty()
+                    detail_placeholder.empty()
                     st.warning("⚠️ 未解析到任何項目")
                     return
 
                 # Store results and advance to results page
-                st.session_state.items = items
-                st.session_state.project_name = project_name
-                st.session_state.step = "results"
+                st.session_state["parsed_items"] = items
+                st.session_state["project_name"] = project_name
+                st.session_state["statistics"] = statistics
+                st.session_state["step"] = "results"
 
                 progress_placeholder.empty()
                 status_placeholder.empty()
-                success_msg = f"✅ 處理完成！共解析 {len(items)} 個項目"
-                if project_name:
-                    success_msg += f" (專案: {project_name})"
+                detail_placeholder.empty()
+
+                # 顯示成功訊息和統計資訊
+                success_msg = f"✅ 處理完成！"
                 st.success(success_msg)
+
+                # 顯示詳細統計
+                if statistics:
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("總項目數", statistics.get("total_items", len(items)))
+                    with col2:
+                        st.metric("家具", statistics.get("furniture_count", 0))
+                    with col3:
+                        st.metric("面料", statistics.get("fabric_count", 0))
+                    with col4:
+                        match_rate = statistics.get("merge_match_rate", 0)
+                        st.metric("配對率", f"{match_rate:.1%}")
+
                 st.rerun()
 
             except Exception as e:
                 progress_placeholder.empty()
+                status_placeholder.empty()
+                detail_placeholder.empty()
                 st.error(f"❌ 錯誤：{str(e)}")
 
 
@@ -200,13 +280,13 @@ def show_results_page():
 
     show_step_indicator()
 
-    items = st.session_state.items
+    items = st.session_state.get("parsed_items")
     project_name = st.session_state.get("project_name")
 
     if not items:
         st.warning("⚠️ 無資料可顯示")
         if st.button("返回上傳"):
-            st.session_state.step = "upload"
+            st.session_state["step"] = "upload"
             st.rerun()
         return
 
@@ -352,19 +432,20 @@ def show_results_page():
 
     with col3:
         if st.button("📤 上傳新檔案", use_container_width=True):
-            st.session_state.step = "upload"
-            st.session_state.items = None
+            st.session_state["step"] = "upload"
+            st.session_state["parsed_items"] = None
             st.rerun()
 
 
 def main():
     """Main application entry point."""
-    if st.session_state.step == "upload":
+    step = st.session_state.get("step", "upload")
+    if step == "upload":
         show_upload_page()
-    elif st.session_state.step == "results":
+    elif step == "results":
         show_results_page()
     else:
-        st.session_state.step = "upload"
+        st.session_state["step"] = "upload"
         show_upload_page()
 
 

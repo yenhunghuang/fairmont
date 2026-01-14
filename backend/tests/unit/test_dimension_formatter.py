@@ -29,12 +29,12 @@ def fabric_item():
 
 @pytest.fixture
 def fabric_item_plain():
-    """建立無花紋面料項目."""
+    """建立無花紋面料項目（description 需以面料關鍵字開頭）."""
     return BOQItem(
         id="test-fabric-2",
         no=2,
         item_no="FAB-002",
-        description="Plain leather for sofa",
+        description="Leather to DLX-200",  # 正確的面料格式，無 repeat
         dimension="",
         source_document_id="doc-1",
     )
@@ -87,12 +87,12 @@ class TestDimensionFormatterService:
         assert formatter.is_fabric(item) is True
 
     def test_is_fabric_with_leather_keyword(self, formatter):
-        """測試面料識別 - 描述含 leather 關鍵字."""
+        """測試面料識別 - 描述以 leather 關鍵字開頭（面料格式：<類型> to <家具編號>）."""
         item = BOQItem(
             id="test-2",
             no=2,
             item_no="LEA-001",
-            description="Italian leather cover",
+            description="Leather to DLX-100",  # 正確的面料 description 格式
             source_document_id="doc-1",
         )
         assert formatter.is_fabric(item) is True
@@ -101,17 +101,18 @@ class TestDimensionFormatterService:
         """測試面料識別 - 家具項目."""
         assert formatter.is_fabric(regular_furniture) is False
 
-    def test_is_fabric_with_materials_specs(self, formatter):
-        """測試面料識別 - materials_specs 含面料關鍵字."""
+    def test_is_fabric_not_detected_by_materials_specs(self, formatter):
+        """測試面料識別 - materials_specs 不用於判斷（因為家具也可能有面料材料）."""
         item = BOQItem(
             id="test-3",
             no=3,
             item_no="MAT-001",
-            description="Sofa cover",
-            materials_specs="Premium leather finish",
+            description="Sofa cover",  # 不以面料關鍵字開頭
+            materials_specs="Premium leather finish",  # 不應該被用於判斷
             source_document_id="doc-1",
         )
-        assert formatter.is_fabric(item) is True
+        # is_fabric() 不檢查 materials_specs，因為家具的搭配材料也可能包含 fabric 關鍵字
+        assert formatter.is_fabric(item) is False
 
 
 class TestFabricDimension:

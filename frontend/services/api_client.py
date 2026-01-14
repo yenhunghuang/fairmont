@@ -1,10 +1,11 @@
 """API client for communicating with FastAPI backend."""
 
 import httpx
+import json
 import logging
 import os
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable, Optional
 from pathlib import Path
 
 
@@ -531,6 +532,174 @@ class APIClient:
             }
         except Exception as e:
             logger.error(f"Process files failed: {e}")
+            return {
+                "success": False,
+                "data": None,
+                "message": str(e),
+            }
+
+    def process_files_stream(
+        self,
+        files: List[tuple[str, bytes]] | List[Path],
+        extract_images: bool = True,
+        on_progress: Optional[Callable[[dict], None]] = None,
+        on_result: Optional[Callable[[dict], None]] = None,
+        on_error: Optional[Callable[[dict], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        使用 SSE 串流方式處理 PDF 檔案，支援即時進度更新。
+
+        這是 process_files 的串流版本，透過回調函數提供即時進度。
+
+        **SSE 事件類型**：
+        - `progress`: 進度更新 {stage, progress, message, detail?}
+        - `result`: 處理完成 {project_name, items[], statistics}
+        - `error`: 錯誤 {code, message, stage?}
+
+        **進度階段 (stage)**:
+        - validating (0-5%): 檔案驗證
+        - detecting_roles (5-10%): 文件角色偵測
+        - parsing_detail_specs (10-70%): 明細規格表解析
+        - parsing_quantity_summary (70-85%): 數量總表解析
+        - merging (85-95%): 跨表合併
+        - converting (95-99%): 格式轉換
+        - completed (100%): 完成
+
+        Args:
+            files: List of (filename, content) tuples or file paths to upload
+            extract_images: Whether to extract images during parsing
+            on_progress: 進度回調函數，接收 {stage, progress, message, detail} dict
+            on_result: 結果回調函數，接收 {project_name, items, statistics} dict
+            on_error: 錯誤回調函數，接收 {code, message, stage} dict
+
+        Returns:
+            處理結果（如果成功）或錯誤訊息:
+            {
+                "success": True/False,
+                "data": {project_name, items, statistics} 或 None,
+                "message": str
+            }
+
+        Example:
+            ```python
+            def handle_progress(data):
+                print(f"{data['progress']}% - {data['message']}")
+
+            def handle_result(data):
+                print(f"完成！共 {len(data['items'])} 個項目")
+
+            def handle_error(data):
+                print(f"錯誤：{data['message']}")
+
+            result = client.process_files_stream(
+                files=[("test.pdf", pdf_content)],
+                on_progress=handle_progress,
+                on_result=handle_result,
+                on_error=handle_error,
+            )
+            ```
+        """
+        try:
+            file_list = []
+
+            for item in files:
+                if isinstance(item, Path):
+                    with open(item, "rb") as f:
+                        content = f.read()
+                    file_list.append(("files", (item.name, content, "application/pdf")))
+                else:
+                    filename, content = item
+                    file_list.append(("files", (filename, content, "application/pdf")))
+
+            headers = {}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+
+            # 使用 stream 參數以支援 SSE
+            with self.client.stream(
+                "POST",
+                f"{self.base_url}/api/v1/process/stream",
+                files=file_list,
+                params={"extract_images": extract_images},
+                headers=headers,
+            ) as response:
+                response.raise_for_status()
+
+                result_data = None
+                error_data = None
+                event_type = None
+
+                # 解析 SSE 事件
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+
+                    # SSE 格式：event: <type>\ndata: <json>\n\n
+                    if line.startswith("event:"):
+                        event_type = line.split(":", 1)[1].strip()
+                        continue
+                    elif line.startswith("data:") and event_type:
+                        data_str = line.split(":", 1)[1].strip()
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Invalid JSON in SSE data: {data_str}")
+                            continue
+
+                        # 根據事件類型處理
+                        if event_type == "progress" and on_progress:
+                            on_progress(data)
+                        elif event_type == "result":
+                            result_data = data
+                            if on_result:
+                                on_result(data)
+                        elif event_type == "error":
+                            error_data = data
+                            if on_error:
+                                on_error(data)
+
+                        # 重置事件類型
+                        event_type = None
+
+                # 返回最終結果
+                if result_data:
+                    return {
+                        "success": True,
+                        "data": result_data,
+                        "message": f"成功處理 {len(result_data.get('items', []))} 個項目",
+                    }
+                elif error_data:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "message": error_data.get("message", "處理失敗"),
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "message": "未收到處理結果",
+                    }
+
+        except httpx.HTTPStatusError as e:
+            error_detail = ""
+            try:
+                error_json = e.response.json()
+                error_detail = error_json.get("message", str(e))
+            except Exception:
+                error_detail = str(e)
+            logger.error(f"Process files stream failed: {error_detail}")
+            if on_error:
+                on_error({"code": "HTTP_ERROR", "message": error_detail})
+            return {
+                "success": False,
+                "data": None,
+                "message": error_detail,
+            }
+        except Exception as e:
+            logger.error(f"Process files stream failed: {e}")
+            if on_error:
+                on_error({"code": "UNKNOWN_ERROR", "message": str(e)})
             return {
                 "success": False,
                 "data": None,
