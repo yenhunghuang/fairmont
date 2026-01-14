@@ -122,18 +122,32 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 | 變動來源 | 頻率 | 配置策略 |
 |---------|------|---------|
 | 客戶輸出格式（惠而蒙 Excel） | 低 | 硬編碼或 `output-formats/` |
-| 供應商 PDF 格式（Habitus 等） | 高 | `vendors/*.yaml` |
+| 供應商 PDF 格式（Habitus 等） | 高 | `vendors/{id}/` 目錄或 `vendors/{id}.yaml` |
 | 排序演算法、Item No. 正規化 | 低 | 硬編碼（`merge_service.py`） |
-| 面料偵測 Pattern、圖片規則 | 高 | `vendors/*.yaml` |
+| 面料偵測 Pattern、圖片規則 | 高 | `vendors/{id}/` 目錄配置 |
 
 ### Skills 目錄結構
 
 ```
 skills/
-├── vendors/habitus.yaml        # 供應商配置（Prompt、圖片規則、面料偵測）
-├── output-formats/fairmont.yaml # 輸出格式（15 欄定義、樣式、條款）
-└── core/merge-rules.yaml       # 合併規則（角色偵測、欄位合併策略）
+├── vendors/
+│   └── habitus/                    # 供應商配置（目錄結構）
+│       ├── _vendor.yaml            # 供應商基本資訊（必要）
+│       ├── document-types.yaml     # 文件類型定義
+│       ├── document-structure.yaml # 頁面結構
+│       ├── image-extraction.yaml   # 圖片抓取規則
+│       ├── dimension-rules.yaml    # Dimension 格式化
+│       ├── fabric-detection.yaml   # 面料偵測規則
+│       ├── field-extraction.yaml   # 欄位提取規則
+│       └── prompts/                # Prompt 模板
+│           ├── parse-specification.yaml
+│           ├── parse-quantity-summary.yaml
+│           └── parse-project-metadata.yaml
+├── output-formats/fairmont.yaml    # 輸出格式（15 欄定義、樣式、條款）
+└── core/merge-rules.yaml           # 合併規則（角色偵測、欄位合併策略）
 ```
+
+**載入優先順序**：目錄結構 > 單檔（`{vendor_id}.yaml`）
 
 **POC 階段固定使用**：`vendor_id="habitus"`, `format_id="fairmont"`
 
@@ -149,7 +163,7 @@ skills/
 | `image_matcher_deterministic.py` | VendorSkill | 圖片排除規則、頁面偏移 |
 | `dimension_formatter.py` | VendorSkill | Dimension 格式化關鍵字 |
 
-### 欄位格式規範（habitus.yaml）
+### 欄位格式規範（habitus/prompts/parse-specification.yaml）
 
 | 欄位 | 家具 (furniture) | 面料 (fabric) |
 |------|-----------------|--------------|
@@ -190,7 +204,7 @@ skills/
 - **效能**: < 100ms/PDF
 
 ```yaml
-# skills/vendors/habitus.yaml
+# skills/vendors/habitus/image-extraction.yaml
 image_extraction:
   page_offset:
     default: 1
