@@ -578,13 +578,19 @@ class PDFParserService:
                     source_page = self._parse_source_page(item_data.get("source_page"))
 
                     # Parse and validate category (1=家具, 5=面料)
+                    # 擴展接受值以提高容錯能力：LLM 可能回傳原始分類名稱而非統一值
+                    FURNITURE_CATEGORIES = {
+                        "furniture", "casegoods", "casegood", "seating", "lighting"
+                    }
+                    FABRIC_CATEGORIES = {"fabric", "leather", "vinyl", "textile"}
+
                     raw_category = item_data.get("category")
                     category = None
                     if raw_category and isinstance(raw_category, str):
                         cat_lower = raw_category.lower().strip()
-                        if cat_lower == "furniture":
+                        if cat_lower in FURNITURE_CATEGORIES:
                             category = 1
-                        elif cat_lower == "fabric":
+                        elif cat_lower in FABRIC_CATEGORIES:
                             category = 5
 
                     # Extract affiliate (面料來源家具編號)

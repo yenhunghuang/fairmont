@@ -191,46 +191,40 @@ class ObservabilityService:
             # Calculate latency
             latency_ms = (end_time - start_time).total_seconds() * 1000
 
-            # Build metadata dict with all fields
+            # Build metadata dict, filtering out None values for cleaner display
             trace_metadata = {
-                "vendor_id": meta.vendor_id,
-                "skill_version": meta.skill_version,
-                "document_id": meta.document_id,
-                "operation": meta.operation,
-                "file_name": meta.file_name,
-                "page_count": meta.page_count,
-                "retry_count": meta.retry_count,
-                "environment": meta.environment,
-                "latency_ms": round(latency_ms, 2),
-                **meta.extra,
+                k: v for k, v in {
+                    "vendor_id": meta.vendor_id,
+                    "skill_version": meta.skill_version,
+                    "document_id": meta.document_id,
+                    "operation": meta.operation,
+                    "file_name": meta.file_name,
+                    "page_count": meta.page_count,
+                    "retry_count": meta.retry_count,
+                    "environment": meta.environment,
+                    "latency_ms": round(latency_ms, 2),
+                    "status": "error" if error else "success",
+                    **meta.extra,
+                }.items() if v is not None
             }
+            if error:
+                trace_metadata["error"] = error
 
-            # Create trace
-            trace = self._langfuse.trace(
-                name=f"pdf_parser.{name}",
-                metadata=trace_metadata,
-                user_id=meta.vendor_id,  # Use vendor as user for grouping
-                tags=[meta.environment, meta.operation],
-            )
-
-            # Record generation within trace
-            trace.generation(
+            # Create generation using start_observation (Langfuse SDK v3.x recommended API)
+            generation = self._langfuse.start_observation(
                 name=name,
+                as_type="generation",
                 model=meta.model or settings.gemini_model,
                 input=prompt,
                 output=output_text,
-                start_time=start_time,
-                end_time=end_time,
-                usage={
+                metadata=trace_metadata,
+                usage_details={
                     "input": usage.prompt_tokens,
                     "output": usage.completion_tokens,
                     "total": usage.total_tokens,
                 },
-                metadata={
-                    "status": "error" if error else "success",
-                    "error": error,
-                },
             )
+            generation.end()
 
             logger.debug(
                 f"Recorded generation '{name}': "

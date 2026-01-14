@@ -16,12 +16,6 @@ class APIResponse(BaseModel, Generic[T]):
     data: Optional[T] = Field(None, description="回應資料")
     timestamp: datetime = Field(default_factory=datetime.now, description="回應時間")
 
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
 
 class ErrorResponse(BaseModel):
     """Error response model."""
@@ -30,12 +24,6 @@ class ErrorResponse(BaseModel):
     message: str = Field(..., description="錯誤訊息（繁體中文）")
     error_code: Optional[str] = Field(None, description="錯誤代碼")
     timestamp: datetime = Field(default_factory=datetime.now, description="回應時間")
-
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class BOQItemResponse(BaseModel):
@@ -89,28 +77,6 @@ class BOQItemResponse(BaseModel):
             source_page=item.source_page,
         )
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
-            "example": {
-                "id": "550e8400-e29b-41d4-a716-446655440000",
-                "no": 1,
-                "item_no": "DLX-100",
-                "description": "King Bed",
-                "photo_base64": "data:image/png;base64,iVBORw0KGgo...",
-                "dimension": "1930 x 2130 x 290 H",
-                "qty": 239.0,
-                "uom": "ea",
-                "unit_cbm": 1.74,
-                "note": "Bed bases only, mattress by owner",
-                "location": "King DLX (A/B), King STD",
-                "materials_specs": "Vinyl: DLX-500 Taupe",
-                "brand": "Fairmont",
-                "source_document_id": "doc-123",
-                "source_page": 1,
-            }
-        }
-
 
 class FairmontItemResponse(BaseModel):
     """
@@ -148,14 +114,14 @@ class FairmontItemResponse(BaseModel):
             no=item.no,
             item_no=item.item_no,
             description=item.description,
-            photo=item.photo_base64,  # 改名
+            photo=item.photo_base64,
             dimension=item.dimension,
             qty=item.qty,
             uom=item.uom,
-            unit_rate=None,   # 留空
-            amount=None,      # 留空
+            unit_rate=None,
+            amount=None,
             unit_cbm=item.unit_cbm,
-            total_cbm=None,   # 留空
+            total_cbm=None,
             note=item.note,
             location=item.location,
             materials_specs=item.materials_specs,
@@ -163,30 +129,6 @@ class FairmontItemResponse(BaseModel):
             category=getattr(item, 'category', None),
             affiliate=getattr(item, 'affiliate', None),
         )
-
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
-            "example": {
-                "no": 1,
-                "item_no": "DLX-101",
-                "description": "Custom Bed Bench",
-                "photo": "iVBORw0KGgo...",
-                "dimension": "1930 x 2130 x 290 H",
-                "qty": 248.0,
-                "uom": "ea",
-                "unit_rate": None,
-                "amount": None,
-                "unit_cbm": 1.74,
-                "total_cbm": None,
-                "note": "Bed bases only",
-                "location": "King DLX (A/B)",
-                "materials_specs": "Vinyl: DLX-500 Taupe",
-                "brand": "Fairmont",
-                "category": 1,
-                "affiliate": None,
-            }
-        }
 
 
 class ProcessResponse(BaseModel):
@@ -203,35 +145,6 @@ class ProcessResponse(BaseModel):
         ..., description="Fairmont 17 欄項目列表"
     )
 
-    class Config:
-        """Pydantic configuration."""
-        json_schema_extra = {
-            "example": {
-                "project_name": "SOLAIRE BAY TOWER",
-                "items": [
-                    {
-                        "no": 1,
-                        "item_no": "DLX-101",
-                        "description": "Custom Bed Bench",
-                        "photo": "iVBORw0KGgo...",
-                        "dimension": "1930 x 2130 x 290 H",
-                        "qty": 248.0,
-                        "uom": "ea",
-                        "unit_rate": None,
-                        "amount": None,
-                        "unit_cbm": 1.74,
-                        "total_cbm": None,
-                        "note": "Bed bases only",
-                        "location": "King DLX (A/B)",
-                        "materials_specs": "Vinyl: DLX-500 Taupe",
-                        "brand": "Fairmont",
-                        "category": 1,
-                        "affiliate": None,
-                    }
-                ],
-            }
-        }
-
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated response model."""
@@ -244,9 +157,3 @@ class PaginatedResponse(BaseModel, Generic[T]):
     page_size: int = Field(..., ge=1, description="每頁筆數")
     total_pages: int = Field(..., ge=1, description="總頁數")
     timestamp: datetime = Field(default_factory=datetime.now, description="回應時間")
-
-    class Config:
-        """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }

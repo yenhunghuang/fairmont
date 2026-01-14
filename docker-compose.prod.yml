@@ -1,3 +1,7 @@
+# Production Docker Compose Configuration
+# 生產環境配置 - 僅包含後端服務
+# 前端由前端工程師團隊獨立部署
+
 services:
   backend:
     build:
@@ -8,8 +12,8 @@ services:
       - "8001:8000"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
-      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-600}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash-lite}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-300}
       - API_KEY=${API_KEY}
       - BACKEND_HOST=0.0.0.0
       - BACKEND_PORT=8000
@@ -19,6 +23,11 @@ services:
       - MAX_FILE_SIZE_MB=50
       - MAX_FILES=5
       - LOG_LEVEL=INFO
+      # Langfuse 可觀測性（選用）
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
     volumes:
       - ./skills:/skills:ro
       - backend_temp:/app/temp_files
@@ -26,23 +35,12 @@ services:
     networks:
       - furniture-network
     restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: furniture-quotation-frontend
-    ports:
-      - "8501:8501"
-    environment:
-      - BACKEND_HOST=backend
-      - BACKEND_PORT=8000
-      - API_KEY=${API_KEY}
-    depends_on:
-      - backend
-    networks:
-      - furniture-network
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   furniture-network:

@@ -41,37 +41,41 @@ streamlit run app.py
 
 ### Docker 部署
 
+#### 本地開發環境（前端 + 後端）
+
 ```bash
-# 啟動
-docker-compose up -d --build
+docker-compose up -d --build      # 啟動前後端
+docker-compose restart            # 重啟（.env 變更後）
+docker-compose logs -f backend    # 查看後端日誌
+docker-compose logs -f frontend   # 查看前端日誌
+docker-compose down               # 停止
+```
 
-# 重啟（.env 變更後）
-docker-compose restart
+#### 生產/測試環境（僅後端）
 
-# 查看日誌
-docker-compose logs -f backend
+前端由前端工程師團隊獨立部署，測試機僅需啟動後端：
 
-# 停止
-docker-compose down
+```bash
+docker-compose -f docker-compose.prod.yml up -d --build      # 啟動後端
+docker-compose -f docker-compose.prod.yml restart            # 重啟
+docker-compose -f docker-compose.prod.yml logs -f backend    # 查看日誌
+docker-compose -f docker-compose.prod.yml down               # 停止
 ```
 
 ### 環境設定
 
 在專案根目錄建立 `.env`：
 
-| 變數 | 必填 | 預設值 | 說明 |
-|------|------|--------|------|
-| `GEMINI_API_KEY` | ✅ | - | Google Gemini API 金鑰 |
-| `GEMINI_MODEL` | ❌ | `gemini-3-flash-preview` | Gemini 模型 |
-| `GEMINI_TIMEOUT_SECONDS` | ❌ | `300` | API 呼叫超時（秒）|
-| `GEMINI_MAX_RETRIES` | ❌ | `2` | 失敗時重試次數 |
-| `API_KEY` | ✅ | - | Swagger UI 認證金鑰 |
-| `SKILLS_DIR` | ❌ | `skills/` | Skills 配置目錄 |
-| `SKILLS_CACHE_ENABLED` | ❌ | `true` | 快取開關（開發時設 `false`）|
-| `MAX_FILE_SIZE_MB` | ❌ | `50` | 單檔最大 MB |
-| `MAX_FILES` | ❌ | `5` | 單次最多檔案數 |
+**必填**：`GEMINI_API_KEY`, `API_KEY`
 
-**Langfuse 可觀測性**（選用）：`LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
+**選用**（含預設值）：
+- `GEMINI_MODEL=gemini-2.0-flash-lite`, `GEMINI_TIMEOUT_SECONDS=300`, `GEMINI_MAX_RETRIES=2`
+- `SKILLS_CACHE_ENABLED=true`（開發時設 `false` 以即時載入 YAML 變更）
+- `BACKEND_DEBUG=false`（設 `true` 啟用詳細日誌）
+- `MAX_FILE_SIZE_MB=50`, `MAX_FILES=5`
+- Langfuse 可觀測性：`LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
+
+**Swagger UI**: `http://localhost:8000/docs`（需輸入 API_KEY）
 
 ## 非協商性標準
 
@@ -289,13 +293,9 @@ Content-Type: multipart/form-data
 - 資料模型：`specs/001-furniture-quotation-system/data-model.md`
 - OpenAPI：`specs/001-furniture-quotation-system/contracts/openapi.yaml`
 
-## 開發提示
+## 測試
 
-- 開發時設定 `SKILLS_CACHE_ENABLED=false` 以即時載入 YAML 變更
-- 使用 `BACKEND_DEBUG=true` 啟用更詳細的日誌
-- Swagger UI：`http://localhost:8000/docs`（需輸入 API_KEY）
-
-## 測試標記
+### 測試標記與執行
 
 ```bash
 pytest -m unit           # 單元測試
@@ -303,3 +303,37 @@ pytest -m integration    # 整合測試
 pytest -m contract       # 契約測試
 pytest -m slow           # 慢速測試
 ```
+
+### 測試 Fixtures（conftest.py）
+
+| Fixture | 用途 |
+|---------|------|
+| `client` | FastAPI TestClient |
+| `mock_store` | InMemoryStore（TTL 60s）|
+| `temp_dir` | 自動清理的暫存目錄 |
+| `sample_pdf_file` | 最小化 PDF 測試檔 |
+| `sample_boq_item_data` | BOQ 項目資料 dict |
+| `sample_boq_items_for_merge` | 合併測試用 BOQ 列表 |
+| `sample_quantity_summary_items` | 數量總表項目 |
+
+**API 測試常數**：`API_PREFIX = "/api/v1"`（定義於 conftest.py）
+
+### 手動 API 測試
+
+```bash
+# 健康檢查
+curl -s http://localhost:8000/api/v1/health
+
+# PDF 解析（timeout 建議 300s+）
+curl -X POST "http://localhost:8000/api/v1/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@path/to/file.pdf" \
+  -F "extract_images=false" \
+  --max-time 300
+```
+
+## Windows/Git Bash 注意事項
+
+- **路徑**: 使用正斜線（`cd backend`）而非反斜線
+- **空格/特殊字元**: 用雙引號包覆（`curl -F "files=@docs/Casegoods & Seatings.pdf"`）
+- **pytest**: 使用 `python -m pytest` 確保模組路徑正確

@@ -29,9 +29,25 @@ nano .env
 
 ### 3. 啟動服務
 
+#### 生產/測試環境（推薦）
+
+生產環境僅啟動後端服務（前端由前端團隊獨立部署）：
+
+```bash
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+#### 本地開發環境
+
+本地開發可同時啟動前端（Streamlit）和後端：
+
 ```bash
 docker-compose up -d --build
 ```
+
+**注意**：
+- 生產環境配置檔：`docker-compose.prod.yml`（僅後端，端口 8001）
+- 開發環境配置檔：`docker-compose.yml`（前後端，端口 8001 + 8501）
 
 ### 4. 驗證服務
 
@@ -67,23 +83,41 @@ curl -X POST "http://localhost:8000/api/v1/process" \
 
 ## 常用指令
 
-### 停止服務
+### 生產環境
+
 ```bash
+# 停止服務
+docker-compose -f docker-compose.prod.yml down
+
+# 重新建置
+docker-compose -f docker-compose.prod.yml up -d --build
+
+# 查看日誌
+docker-compose -f docker-compose.prod.yml logs -f backend
+
+# 查看容器狀態
+docker-compose -f docker-compose.prod.yml ps
+
+# 重啟服務（.env 變更後）
+docker-compose -f docker-compose.prod.yml restart
+```
+
+### 開發環境
+
+```bash
+# 停止服務
 docker-compose down
-```
 
-### 重新建置
-```bash
+# 重新建置
 docker-compose up -d --build
-```
 
-### 查看日誌
-```bash
+# 查看後端日誌
 docker-compose logs -f backend
-```
 
-### 查看容器狀態
-```bash
+# 查看前端日誌
+docker-compose logs -f frontend
+
+# 查看容器狀態
 docker-compose ps
 ```
 
