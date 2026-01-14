@@ -151,6 +151,36 @@ skills/
 
 **POC 階段固定使用**：`vendor_id="habitus"`, `format_id="fairmont"`
 
+### JSON Schema 驗證
+
+配置檔案可透過 JSON Schema 驗證，位於 `skills/schemas/`：
+
+| Schema | 用途 |
+|--------|------|
+| `vendor.schema.json` | 供應商配置驗證（文件類型、Prompt、圖片規則）|
+| `merge-rules.schema.json` | 合併規則驗證（角色偵測、欄位策略）|
+| `output-format.schema.json` | 輸出格式驗證（欄位定義、樣式）|
+
+### 漸進式揭露層級
+
+各配置區塊標記 `_disclosure_level`，定義載入時機：
+
+| Level | 名稱 | 載入時機 | 範例區塊 |
+|-------|------|----------|----------|
+| L1 | 識別層 | 立即載入 | `vendor` (name, version, requires) |
+| L2 | 結構層 | 初始化時 | `document_types`, `document_structure` |
+| L3 | 規則層 | 按需載入 | `image_extraction`, `dimension_formatting`, `fabric_detection` |
+| L4 | 執行層 | LLM 呼叫時 | `prompts/*` |
+
+**版本依賴聲明**（`_vendor.yaml`）：
+```yaml
+vendor:
+  version: "1.2.0"
+  requires:
+    merge_rules: ">=1.1.0"
+    output_format: ">=1.0.0"
+```
+
 ### 服務與 Skill 對應
 
 | 服務 | 使用的 Skill | 用途 |
