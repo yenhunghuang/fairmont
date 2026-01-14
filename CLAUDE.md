@@ -69,7 +69,7 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 **必填**：`GEMINI_API_KEY`, `API_KEY`
 
 **選用**（含預設值）：
-- `GEMINI_MODEL=gemini-2.0-flash-lite`, `GEMINI_TIMEOUT_SECONDS=300`, `GEMINI_MAX_RETRIES=2`
+- `GEMINI_MODEL=gemini-3-flash-preview`, `GEMINI_TIMEOUT_SECONDS=300`, `GEMINI_MAX_RETRIES=2`
 - `SKILLS_CACHE_ENABLED=true`（開發時設 `false` 以即時載入 YAML 變更）
 - `BACKEND_DEBUG=false`（設 `true` 啟用詳細日誌）
 - `MAX_FILE_SIZE_MB=50`, `MAX_FILES=5`

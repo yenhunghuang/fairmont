@@ -38,6 +38,26 @@ curl http://localhost:8000/api/v1/health
 | `BACKEND_DEBUG` | 選填 | 設 `true` 啟用詳細日誌 |
 | `SKILLS_CACHE_ENABLED` | 選填 | 設 `false` 可即時載入 YAML 變更 |
 
+### 3. Docker 部署
+
+#### 本地開發環境（前端 + 後端）
+
+```bash
+docker-compose up -d --build      # 啟動前後端
+docker-compose logs -f backend    # 查看後端日誌
+docker-compose down               # 停止
+```
+
+#### 測試機部署（僅後端）
+
+測試機僅需啟動後端，前端由前端團隊獨立部署，**不會佔用 8501 port**：
+
+```bash
+docker-compose -f docker-compose.prod.yml up -d --build   # 啟動後端
+docker-compose -f docker-compose.prod.yml logs -f backend # 查看日誌
+docker-compose -f docker-compose.prod.yml down            # 停止
+```
+
 ---
 
 ## 專案架構速覽
