@@ -1,0 +1,64 @@
+# 明細表內部結構（頁面類型）
+
+document_structure:
+  # 頁面類型識別
+  page_types:
+    index_page:
+      description: "索引頁 - 列出所有品項及其出現的房型"
+      identifiers:
+        - contains_text: "Index"
+        - contains_text: "Item #"
+        - contains_text: "Room"
+        - contains_text: "Quantity"
+      provides:
+        - item_no
+        - location       # 從 "@房型" 列表提取
+      note: "每個 Item No. 下方列出所有房型（以 @ 開頭）"
+
+    specification_page:
+      description: "規格頁 - 包含品項詳細資訊"
+      identifiers:
+        - contains_text: "100 Seating & Upholstered Furniture"
+        - contains_text: "PROJECT"
+        - contains_text: "ITEM NO.:"
+      has_product_image: false
+      provides:
+        - item_no
+        - description
+        - dimension
+        - materials_specs
+        - uom
+        - note
+
+    attachment_page:
+      description: "附件頁 - 包含產品圖和材質色票"
+      identifiers:
+        - contains_text: "ATTACHMENTS:"
+        - previous_page_type: "specification_page"
+      has_product_image: true
+      provides:
+        - product_image
+
+    drawing_page:
+      description: "工程圖頁 - 包含技術圖面（不使用）"
+      identifiers:
+        - contains_text: "TOP VIEW"
+        - contains_text: "FRONT VIEW"
+        - contains_text: "SIDE VIEW"
+        - contains_text: "SCALE:"
+      has_product_image: false
+
+  # 明細表頁面結構
+  page_sequence:
+    description: "明細表的頁面順序"
+    structure:
+      - section: "index"
+        pages: "1-2"
+        description: "索引區塊 - 品項與房型對照表"
+      - section: "items"
+        pages: "3+"
+        description: "詳細規格區塊 - 每個品項 2-4 頁"
+        item_page_pattern:
+          - specification_page  # 第 1 頁：規格
+          - attachment_page     # 第 2 頁：附件（產品圖在這）
+          - drawing_page        # 第 3-4 頁：工程圖（可選）

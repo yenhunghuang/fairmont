@@ -1,0 +1,13 @@
+# HABITUS Design Group - 供應商基本資訊
+# 版本: 1.2.0
+# 更新日期: 2025-12-29
+# 適用文件: FF&E Specification PDFs
+# 變更記錄:
+#   - 1.1.0: 加入輸出範例、統一錯誤處理、修正正則、標記 deprecated prompt
+#   - 1.1.1: 移除重複的 role_detection（改用 merge-rules.yaml）、明確 qty 規則
+#   - 1.2.0: 強化 fabric dimension/brand 規則，新增多個 fabric 輸出範例，修正 LLM 省略問題
+
+vendor:
+  name: "HABITUS Design Group"
+  identifier: "habitus"
+  version: "1.2.0"

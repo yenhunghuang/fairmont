@@ -1,0 +1,57 @@
+# 文件類型定義（HABITUS 使用多種文件）
+
+document_types:
+  # 家具類明細表（有 Index 區塊）
+  furniture_specification:
+    description: "家具明細表 - 包含 Index 區塊 + 詳細規格"
+    filename_patterns:
+      - "Casegoods"
+      - "Seating"
+      - "Lighting"
+    has_index_section: true
+    provides:
+      - item_no
+      - description
+      - dimension
+      - location        # 從 Index 區塊的 @房型 提取
+      - materials_specs
+      - brand
+      - uom
+      - product_image
+    does_not_provide:
+      - qty             # 數量要從 quantity_summary 取得
+
+  # 面料類明細表（無 Index 區塊）
+  fabric_specification:
+    description: "面料明細表 - 直接是規格頁，無 Index"
+    filename_patterns:
+      - "Fabric"
+      - "Leather"
+      - "Vinyl"
+    has_index_section: false
+    provides:
+      - item_no
+      - description
+      - location        # 從 ITEM 欄位的 @家具編號 提取
+      - materials_specs
+      - brand
+      - product_image
+    location_source:
+      field: "ITEM"
+      description: "從 ITEM 欄位提取 @ 後面的家具編號"
+      example: "Fabric @ DLX-100 King Sized Bed and DLX-103 Queen Sized Bed"
+      extract_pattern: "@\\s*(.+?)$"
+    does_not_provide:
+      - qty
+      # dimension: fabric 使用此欄位存放材料規格（材料類型-Vendor-Pattern-Color-Width）
+
+  # 數量總表
+  quantity_summary:
+    description: "數量總表 - 只包含 Item No. 和 Total Qty"
+    filename_patterns:
+      - "Overall Qty"
+      - "Quantity"
+      - "Summary"
+    provides:
+      - item_no
+      - qty             # 總數量（已彙整各房型）
