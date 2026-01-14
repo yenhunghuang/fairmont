@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # API Key Authentication
     api_key: str = ""  # Bearer Token 認證用
 
+    # POC Configuration (固定值，未來可改為可配置)
+    # 這些值在 POC 階段是固定的，集中管理以便未來擴展
+    default_vendor_id: str = "habitus"  # 預設供應商 ID
+    default_format_id: str = "fairmont"  # 預設輸出格式 ID
+
     # Computed paths
     @property
     def temp_dir_path(self) -> Path:

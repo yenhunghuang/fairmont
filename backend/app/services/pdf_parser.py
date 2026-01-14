@@ -160,10 +160,10 @@ class PDFParserService:
         Raises:
             APIError: If PDF is invalid
         """
+        doc = None
         try:
             doc = fitz.open(file_path)
             page_count = doc.page_count
-            doc.close()
 
             if page_count == 0:
                 raise_error(ErrorCode.PDF_PARSING_FAILED, "PDF 文件為空，無法解析")
@@ -176,6 +176,9 @@ class PDFParserService:
                 raise_error(ErrorCode.PDF_PASSWORD_PROTECTED, "PDF 檔案受密碼保護")
             logger.error(f"PDF validation failed: {e}")
             raise_error(ErrorCode.PDF_PARSING_FAILED, f"PDF 驗證失敗：{str(e)}")
+        finally:
+            if doc:
+                doc.close()
 
     def extract_text_from_pdf(self, file_path: str, max_pages: int | None = None) -> str:
         """
@@ -191,6 +194,7 @@ class PDFParserService:
         Raises:
             APIError: If extraction fails
         """
+        doc = None
         try:
             doc = fitz.open(file_path)
             text = ""
@@ -200,11 +204,13 @@ class PDFParserService:
                 text += f"\n--- Page {page_num + 1} ---\n"
                 text += page.get_text()
 
-            doc.close()
             return text
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
             raise_error(ErrorCode.PDF_EXTRACT_FAILED, "文本提取失敗")
+        finally:
+            if doc:
+                doc.close()
 
     async def _call_gemini_with_retry(
         self,

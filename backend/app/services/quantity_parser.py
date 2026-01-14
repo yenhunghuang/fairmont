@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -127,6 +127,10 @@ class QuantityParserService:
             environment=settings.environment,
         )
 
+        # Initialize variables for exception handling
+        prompt = ""
+        start_time = datetime.now(timezone.utc)
+
         try:
             if not self.client:
                 raise ValueError("Gemini API 未配置")
@@ -142,7 +146,7 @@ class QuantityParserService:
 
             # Call Gemini API (use asyncio.to_thread for sync call)
             # New SDK uses client.models.generate_content
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self.client.models.generate_content,
@@ -178,13 +182,13 @@ class QuantityParserService:
             error_msg = f"Gemini API 呼叫超時（{settings.gemini_timeout_seconds} 秒）"
             logger.error(f"Gemini API timeout for quantity summary {file_path}")
 
-            # Track timeout
+            # Track timeout (variables initialized at function start)
             observability.track_gemini_call(
                 name="quantity_summary_extraction",
-                prompt=prompt if "prompt" in locals() else "",
+                prompt=prompt,
                 response=None,
                 metadata=trace_metadata,
-                start_time=start_time if "start_time" in locals() else datetime.utcnow(),
+                start_time=start_time,
                 error=error_msg,
             )
 
@@ -192,13 +196,13 @@ class QuantityParserService:
         except Exception as e:
             logger.error(f"Error parsing quantity summary {file_path}: {e}")
 
-            # Track error
+            # Track error (variables initialized at function start)
             observability.track_gemini_call(
                 name="quantity_summary_extraction",
-                prompt=prompt if "prompt" in locals() else "",
+                prompt=prompt,
                 response=None,
                 metadata=trace_metadata,
-                start_time=start_time if "start_time" in locals() else datetime.utcnow(),
+                start_time=start_time,
                 error=str(e),
             )
 
