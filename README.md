@@ -24,6 +24,12 @@
 # .env (必填)
 GEMINI_API_KEY=your_gemini_api_key
 API_KEY=your_api_key
+
+# Langfuse 可觀測性 (選用)
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=your_public_key
+LANGFUSE_SECRET_KEY=your_secret_key
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
 ### 啟動服務
