@@ -37,20 +37,22 @@ class PDFParserService:
             self._load_skill_config(vendor_id)
 
         try:
-            import google.generativeai as genai
+            from google import genai
             self.genai = genai
             if settings.gemini_api_key:
-                genai.configure(api_key=settings.gemini_api_key)
-            self.model = genai.GenerativeModel(settings.gemini_model)
-            logger.info(f"Gemini model initialized: {settings.gemini_model}")
+                self.client = genai.Client(api_key=settings.gemini_api_key)
+            else:
+                self.client = None
+            self.model_name = settings.gemini_model
+            logger.info(f"Gemini client initialized: {settings.gemini_model}")
         except ImportError:
-            logger.warning("google-generativeai not installed")
+            logger.warning("google-genai not installed")
             self.genai = None
-            self.model = None
+            self.client = None
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {e}")
             self.genai = None
-            self.model = None
+            self.client = None
 
     def _load_skill_config(self, vendor_id: str) -> None:
         """Load prompts from Skill config (required for POC).
@@ -158,10 +160,10 @@ class PDFParserService:
         Raises:
             APIError: If PDF is invalid
         """
+        doc = None
         try:
             doc = fitz.open(file_path)
             page_count = doc.page_count
-            doc.close()
 
             if page_count == 0:
                 raise_error(ErrorCode.PDF_PARSING_FAILED, "PDF 文件為空，無法解析")
@@ -174,6 +176,9 @@ class PDFParserService:
                 raise_error(ErrorCode.PDF_PASSWORD_PROTECTED, "PDF 檔案受密碼保護")
             logger.error(f"PDF validation failed: {e}")
             raise_error(ErrorCode.PDF_PARSING_FAILED, f"PDF 驗證失敗：{str(e)}")
+        finally:
+            if doc:
+                doc.close()
 
     def extract_text_from_pdf(self, file_path: str, max_pages: int | None = None) -> str:
         """
@@ -189,6 +194,7 @@ class PDFParserService:
         Raises:
             APIError: If extraction fails
         """
+        doc = None
         try:
             doc = fitz.open(file_path)
             text = ""
@@ -198,11 +204,13 @@ class PDFParserService:
                 text += f"\n--- Page {page_num + 1} ---\n"
                 text += page.get_text()
 
-            doc.close()
             return text
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
             raise_error(ErrorCode.PDF_EXTRACT_FAILED, "文本提取失敗")
+        finally:
+            if doc:
+                doc.close()
 
     async def _call_gemini_with_retry(
         self,
@@ -231,18 +239,16 @@ class PDFParserService:
         last_error = None
         observability = get_observability()
 
-        # Use system prompt if provided (creates a new model instance with system instruction)
-        model_to_use = self.model
+        # Prepare generation config with system instruction if provided
+        generate_config = None
         if system_prompt and self.genai:
             try:
-                model_to_use = self.genai.GenerativeModel(
-                    settings.gemini_model,
+                generate_config = self.genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
                 )
                 logger.debug(f"Using system prompt for {operation}")
             except Exception as e:
-                logger.warning(f"Failed to create model with system instruction: {e}, using default model")
-                model_to_use = self.model
+                logger.warning(f"Failed to create config with system instruction: {e}")
 
         # Prepare trace metadata
         skill_version = None
@@ -269,8 +275,14 @@ class PDFParserService:
                 )
 
                 # Use asyncio.wait_for to enforce timeout
+                # New SDK uses client.models.generate_content with model name
                 response = await asyncio.wait_for(
-                    asyncio.to_thread(model_to_use.generate_content, prompt),
+                    asyncio.to_thread(
+                        self.client.models.generate_content,
+                        model=self.model_name,
+                        contents=prompt,
+                        config=generate_config,
+                    ),
                     timeout=timeout_seconds,
                 )
 
@@ -379,7 +391,7 @@ class PDFParserService:
         Raises:
             APIError: If parsing fails
         """
-        if not self.model:
+        if not self.client:
             raise_error(
                 ErrorCode.GEMINI_API_ERROR,
                 "Gemini API 未配置，無法解析 PDF",
@@ -438,7 +450,7 @@ class PDFParserService:
         Returns:
             Dict containing project_name and area
         """
-        if not self.model:
+        if not self.client:
             return {}
 
         observability = get_observability()
@@ -470,8 +482,13 @@ class PDFParserService:
         start_time = datetime.utcnow()
         try:
             # Use simpler call without full retry (metadata extraction is optional)
+            # New SDK uses client.models.generate_content
             response = await asyncio.wait_for(
-                asyncio.to_thread(self.model.generate_content, prompt),
+                asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=prompt,
+                ),
                 timeout=30,  # Shorter timeout for metadata
             )
 

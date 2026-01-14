@@ -1,6 +1,8 @@
 """In-memory store for documents, tasks, quotations, and images."""
 
 import logging
+import threading
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from .models import (
@@ -18,10 +20,30 @@ logger = logging.getLogger(__name__)
 
 
 class InMemoryStore:
-    """In-memory storage for all application data."""
+    """In-memory storage for all application data with TTL-based cleanup.
 
-    def __init__(self, cache_ttl: int = 3600):
+    Features:
+        - Automatic cleanup of expired entries based on TTL
+        - Background thread for periodic cleanup (every 5 minutes)
+        - Thread-safe timestamp tracking
+
+    Note:
+        Default TTL is 1 hour. Data older than TTL will be automatically removed.
+        This prevents memory leaks in long-running processes.
+    """
+
+    def __init__(self, cache_ttl: int = 3600, cleanup_interval: int = 300):
+        """Initialize the in-memory store.
+
+        Args:
+            cache_ttl: Time-to-live in seconds for cached items (default: 1 hour)
+            cleanup_interval: Interval between cleanup runs in seconds (default: 5 min)
+        """
         self.cache_ttl = cache_ttl
+        self._cleanup_interval = cleanup_interval
+        self._lock = threading.RLock()
+        self._timestamps: Dict[str, datetime] = {}
+        self._shutdown_event = threading.Event()
 
         self.documents: Dict[str, SourceDocument] = {}
         self.boq_items: Dict[str, BOQItem] = {}
@@ -30,12 +52,85 @@ class InMemoryStore:
         self.extracted_images: Dict[str, ExtractedImage] = {}
         self.merge_reports: Dict[str, MergeReport] = {}
 
-        logger.info(f"InMemoryStore initialized (ttl={cache_ttl}s)")
+        # Start background cleanup thread
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop, daemon=True, name="InMemoryStore-Cleanup"
+        )
+        self._cleanup_thread.start()
+
+        logger.info(
+            f"InMemoryStore initialized (ttl={cache_ttl}s, cleanup_interval={cleanup_interval}s)"
+        )
+
+    def _record_access(self, key: str) -> None:
+        """Record timestamp for an entry."""
+        with self._lock:
+            self._timestamps[key] = datetime.now()
+
+    def _cleanup_loop(self) -> None:
+        """Background loop to periodically clean up expired entries."""
+        while not self._shutdown_event.is_set():
+            self._shutdown_event.wait(timeout=self._cleanup_interval)
+            if not self._shutdown_event.is_set():
+                self._cleanup_expired()
+
+    def _cleanup_expired(self) -> None:
+        """Remove entries that have exceeded the TTL."""
+        now = datetime.now()
+        ttl_delta = timedelta(seconds=self.cache_ttl)
+        expired_keys: List[str] = []
+
+        with self._lock:
+            for key, ts in list(self._timestamps.items()):
+                if now - ts > ttl_delta:
+                    expired_keys.append(key)
+
+        if not expired_keys:
+            return
+
+        removed_count = 0
+        with self._lock:
+            for key in expired_keys:
+                removed_count += self._remove_by_key(key)
+                self._timestamps.pop(key, None)
+
+        if removed_count > 0:
+            logger.info(f"TTL cleanup: removed {removed_count} expired entries")
+
+    def _remove_by_key(self, key: str) -> int:
+        """Remove entry by key from all collections. Returns number removed."""
+        count = 0
+        if key in self.documents:
+            del self.documents[key]
+            count += 1
+        if key in self.boq_items:
+            del self.boq_items[key]
+            count += 1
+        if key in self.quotations:
+            del self.quotations[key]
+            count += 1
+        if key in self.processing_tasks:
+            del self.processing_tasks[key]
+            count += 1
+        if key in self.extracted_images:
+            del self.extracted_images[key]
+            count += 1
+        if key in self.merge_reports:
+            del self.merge_reports[key]
+            count += 1
+        return count
+
+    def shutdown(self) -> None:
+        """Shutdown the background cleanup thread."""
+        self._shutdown_event.set()
+        if self._cleanup_thread.is_alive():
+            self._cleanup_thread.join(timeout=1.0)
 
     # ===== Document Management =====
 
     def add_document(self, document: SourceDocument) -> None:
         self.documents[document.id] = document
+        self._record_access(document.id)
         logger.info(f"Document added: {document.id}")
 
     def get_document(self, document_id: str) -> SourceDocument:
@@ -62,6 +157,7 @@ class InMemoryStore:
 
     def add_boq_item(self, item: BOQItem) -> None:
         self.boq_items[item.id] = item
+        self._record_access(item.id)
         logger.info(f"BOQ item added: {item.id}")
 
     def get_boq_item(self, item_id: str) -> BOQItem:
@@ -83,6 +179,7 @@ class InMemoryStore:
 
     def add_quotation(self, quotation: Quotation) -> None:
         self.quotations[quotation.id] = quotation
+        self._record_access(quotation.id)
         logger.info(f"Quotation added: {quotation.id}")
 
     def get_quotation(self, quotation_id: str) -> Quotation:
@@ -109,6 +206,7 @@ class InMemoryStore:
 
     def add_task(self, task: ProcessingTask) -> None:
         self.processing_tasks[task.task_id] = task
+        self._record_access(task.task_id)
         logger.info(f"Task added: {task.task_id}")
 
     def get_task(self, task_id: str) -> ProcessingTask:
@@ -136,6 +234,7 @@ class InMemoryStore:
 
     def add_image(self, image: ExtractedImage) -> None:
         self.extracted_images[image.id] = image
+        self._record_access(image.id)
         logger.info(f"Image added: {image.id}")
 
     def get_image(self, image_id: str) -> ExtractedImage:
@@ -155,6 +254,7 @@ class InMemoryStore:
 
     def add_merge_report(self, report: MergeReport) -> None:
         self.merge_reports[report.id] = report
+        self._record_access(report.id)
         logger.info(f"Merge report added: {report.id}")
 
     def get_merge_report(self, report_id: str) -> MergeReport:

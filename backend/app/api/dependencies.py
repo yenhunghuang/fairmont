@@ -1,6 +1,8 @@
 """API dependencies and injection."""
 
+import secrets
 from typing import Annotated
+
 from fastapi import Depends, UploadFile, File, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
@@ -120,7 +122,8 @@ async def verify_api_key(
     """
     token = credentials.credentials
 
-    if token != settings.api_key:
+    # Use time-safe comparison to prevent timing attacks
+    if not secrets.compare_digest(token.encode(), settings.api_key.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="無效的 API Key",

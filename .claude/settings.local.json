@@ -36,7 +36,25 @@
       "Bash(netstat:*)",
       "Bash(ping:*)",
       "Bash(chcp)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git pull:*)",
+      "Bash(ssh yenhung@192.168.0.83:*)",
+      "Bash(git merge:*)",
+      "Bash(tee:*)",
+      "Bash(tasklist:*)",
+      "WebSearch",
+      "Skill(excel-analysis)",
+      "Bash(streamlit run:*)",
+      "Bash(timeout 5 tail:*)",
+      "Bash(git rm:*)",
+      "Bash(test:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(powershell \"Get-Process | Where-Object {$_ProcessName -like ''*python*'' -or $_ProcessName -like ''*uvicorn*'' -or $_ProcessName -like ''*streamlit*''} | Select-Object Id,ProcessName,Path | Format-Table\")",
+      "Bash(git reset:*)",
+      "Bash(glab:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(claude /plugin uninstall:*)"
     ]
   }
 }
