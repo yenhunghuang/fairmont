@@ -27,6 +27,23 @@ services:
       - furniture-network
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: furniture-quotation-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8000
+      - API_KEY=${API_KEY}
+    depends_on:
+      - backend
+    networks:
+      - furniture-network
+    restart: unless-stopped
+
 networks:
   furniture-network:
     driver: bridge
