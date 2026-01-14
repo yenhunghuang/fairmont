@@ -97,11 +97,14 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 
 | 檔案 | 用途 |
 |------|------|
-| `backend/app/api/routes/process.py` | 主要 API 端點（/process）|
+| `backend/app/api/routes/process.py` | 主要 API 端點（/process, /process/stream）|
 | `backend/app/services/pdf_parser.py` | Gemini AI 解析核心 |
+| `backend/app/services/quantity_parser.py` | 數量總表解析 |
 | `backend/app/services/merge_service.py` | 跨表合併與面料排序 |
+| `backend/app/services/fabric_validator.py` | 面料驗證與過濾 |
 | `backend/app/services/skill_loader.py` | Skills YAML 配置載入 |
 | `backend/app/models/boq_item.py` | BOQItem 資料模型 |
+| `backend/app/models/progress.py` | SSE 進度追蹤模型 |
 | `backend/app/store.py` | 記憶體儲存（InMemoryStore）|
 
 ### 關鍵架構模式
@@ -201,7 +204,6 @@ image_extraction:
 - 無 Redis/資料庫，狀態存於記憶體（1 小時 TTL）
 - 單檔最大 50MB，每次最多 5 個檔案
 - 單次處理最大 200 頁 PDF
-- Unit Rate (H欄)、Amount (I欄) 留空由使用者填寫
 - 跨表合併：最多 1 個數量總表
 
 ## 關鍵模式
@@ -242,14 +244,21 @@ def get_my_service() -> MyService:
     return _my_service
 ```
 
-## 惠而蒙 Excel 格式
+## 輸出格式
 
-17 欄：NO. / Item no. / Description / Photo / Dimension / Qty / UOM / Unit Rate / Amount / Unit CBM / Total CBM / Note / Location / Materials / Brand / Category / Affiliate
+### API 回傳（17 欄）
 
-- **Category**: 分類（1=家具, 5=面料）
-- **Affiliate**: 附屬 - 面料來源的家具編號，多個用 `, ` 分隔；家具此欄位為 null
+供前端同事設計 UI 與 Excel 輸出使用：
+- 前 15 欄：對應客戶 Excel 格式
+- **category**: 分類（1=家具, 5=面料）— 供排序與分組
+- **affiliate**: 附屬（面料來源的家具編號，多個用 `, ` 分隔）— 供關聯顯示
 
-配置：`skills/output-formats/fairmont.yaml`
+### 客戶 Excel 輸出（15 欄）
+
+NO. / Item no. / Description / Photo / Dimension / Qty / UOM / Unit Rate / Amount / Unit CBM / Total CBM / Note / Location / Materials / Brand
+
+- Unit Rate、Amount 留空由使用者填寫
+- 配置：`skills/output-formats/fairmont.yaml`
 
 ## API 端點
 
@@ -274,6 +283,27 @@ Content-Type: multipart/form-data
   "project_name": "SOLAIRE BAY TOWER",
   "items": [{ "no": 1, "item_no": "DLX-100", ... }]
 }
+```
+
+### SSE 串流端點（即時進度）
+
+```http
+POST /api/v1/process/stream
+```
+
+與 `/process` 相同參數，透過 SSE 串流返回即時進度。
+
+**SSE 事件類型**：
+- `progress`: 進度更新 `{stage, progress, message, detail?}`
+- `result`: 處理完成 `{project_name, items[], statistics}`
+- `error`: 錯誤 `{code, message, stage?}`
+
+**進度階段**：validating (0-5%) → detecting_roles (5-10%) → parsing_detail_specs (10-70%) → parsing_quantity_summary (70-85%) → merging (85-95%) → converting (95-99%) → completed (100%)
+
+```bash
+curl -N -H "Authorization: Bearer YOUR_API_KEY" \
+     -F "files=@test.pdf" \
+     http://localhost:8000/api/v1/process/stream
 ```
 
 ### 其他端點

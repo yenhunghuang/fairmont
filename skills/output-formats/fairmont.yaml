@@ -17,7 +17,7 @@ company:
   phone: "+886-2-2712-9606"
   fax: "+886-2-2712-1626"
   website: "www.fairmontdesignshospitality.com"
-  logo_file: "docs/fairmont-logo.jpg"
+  logo_file: "docs/assets/fairmont-logo.jpg"
 
 # ============================================================
 # Excel 版面配置

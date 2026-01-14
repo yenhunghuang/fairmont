@@ -1,93 +1,81 @@
-# source_gemini
+# Fairmont 家具報價單自動化系統
 
+上傳 BOQ (Bill of Quantities) PDF，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單。
 
+![流程簡介](docs/assets/flow-overview.png)
 
-## Getting started
+## 功能特色
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- **PDF 智慧解析** - Gemini AI 提取家具規格、面料資訊
+- **跨表合併** - 自動比對數量總表與明細規格表
+- **圖片匹配** - 確定性演算法配對產品圖片
+- **Excel 輸出** - 符合客戶 15 欄報價單格式
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## 快速開始
 
-## Add your files
+### 環境需求
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+- Python >= 3.11
+- Docker (可選)
+
+### 環境變數
+
+```bash
+# .env (必填)
+GEMINI_API_KEY=your_gemini_api_key
+API_KEY=your_api_key
+```
+
+### 啟動服務
+
+```bash
+# Docker
+docker-compose up -d --build
+
+# 或本地開發
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+### API 使用
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@your-file.pdf"
+```
+
+**Swagger UI**: http://localhost:8000/docs
+
+## 技術架構
+
+| 元件 | 技術 |
+|------|------|
+| 後端 | FastAPI + Python 3.11 |
+| AI | Google Gemini 2.0 Flash |
+| 配置 | Skills YAML (供應商/輸出格式/合併規則) |
+| 儲存 | 記憶體快取 (1hr TTL) |
+
+詳見 [架構文件](docs/architecture-flow.md)
+
+## 專案結構
 
 ```
-cd existing_repo
-git remote add origin https://mdbs-gitlab.mdevelop.com/mdbs-server/mdbs-ai/bs2512020_fairmont/source_gemini.git
-git branch -M main
-git push -uf origin main
+backend/
+├── app/
+│   ├── api/routes/      # API 端點
+│   ├── services/        # 業務邏輯
+│   └── models/          # 資料模型
+skills/
+├── vendors/             # 供應商配置
+├── output-formats/      # 輸出格式
+└── core/                # 合併規則
 ```
 
-## Integrate with your tools
+## 文件
 
-- [ ] [Set up project integrations](https://mdbs-gitlab.mdevelop.com/mdbs-server/mdbs-ai/bs2512020_fairmont/source_gemini/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- [CLAUDE.md](CLAUDE.md) - 開發指引
+- [架構流程](docs/architecture-flow.md)
+- [部署說明](docs/deployment.md)
+- [前端 API](docs/frontend-api.md)
