@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import fitz  # PyMuPDF
-import google.generativeai as genai
+from google import genai
 
 from ..config import settings
 from ..models.quantity_summary import QuantitySummaryItem
@@ -39,12 +39,12 @@ class QuantityParserService:
         if vendor_id:
             self._load_skill_config(vendor_id)
 
-        # Initialize Gemini model
+        # Initialize Gemini client
         if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-            self.model = genai.GenerativeModel(settings.gemini_model)
+            self.client = genai.Client(api_key=settings.gemini_api_key)
+            self.model_name = settings.gemini_model
         else:
-            self.model = None
+            self.client = None
             logger.warning("Gemini API key not configured")
 
     def _load_skill_config(self, vendor_id: str) -> None:
@@ -128,7 +128,7 @@ class QuantityParserService:
         )
 
         try:
-            if not self.model:
+            if not self.client:
                 raise ValueError("Gemini API 未配置")
 
             # Extract text from PDF using PyMuPDF
@@ -141,9 +141,14 @@ class QuantityParserService:
             prompt = template.format(pdf_content=text_content)
 
             # Call Gemini API (use asyncio.to_thread for sync call)
+            # New SDK uses client.models.generate_content
             start_time = datetime.utcnow()
             response = await asyncio.wait_for(
-                asyncio.to_thread(self.model.generate_content, prompt),
+                asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=prompt,
+                ),
                 timeout=settings.gemini_timeout_seconds,
             )
 
