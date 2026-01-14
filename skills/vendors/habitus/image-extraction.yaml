@@ -1,6 +1,8 @@
 # 圖片抓取規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
 
 image_extraction:
+  _disclosure_level: 3
   # 頁面偏移配置（圖片在規格頁後幾頁）
   page_offset:
     default: 1

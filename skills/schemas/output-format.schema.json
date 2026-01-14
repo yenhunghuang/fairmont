@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fairmont.local/schemas/output-format.schema.json",
+  "title": "Output Format Configuration",
+  "description": "輸出格式配置 Schema - 定義 Excel 欄位、樣式、條款",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "format": {
+      "type": "object",
+      "description": "格式基本資訊 (L1 識別層)",
+      "_disclosure_level": 1,
+      "required": ["name", "identifier"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "格式名稱"
+        },
+        "identifier": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        }
+      }
+    },
+    "company": {
+      "type": "object",
+      "description": "公司資訊 (L2 結構層)",
+      "_disclosure_level": 2,
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "fax": { "type": "string" },
+        "website": { "type": "string" },
+        "logo_file": { "type": "string" }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "description": "版面配置 (L2 結構層)",
+      "_disclosure_level": 2,
+      "properties": {
+        "sheet_name": { "type": "string" },
+        "rows": {
+          "type": "object",
+          "properties": {
+            "header_start": { "type": "integer" },
+            "data_header": { "type": "integer" },
+            "data_start": { "type": "integer" }
+          }
+        },
+        "logo": {
+          "type": "object",
+          "properties": {
+            "position": { "type": "string" },
+            "width_px": { "type": "integer" },
+            "height_px": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "columns": {
+      "type": "array",
+      "description": "欄位定義 (L2 結構層)",
+      "_disclosure_level": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "header"],
+        "properties": {
+          "id": { "type": "string" },
+          "header": { "type": "string" },
+          "width": { "type": "number" },
+          "source_field": { "type": "string" },
+          "format": { "type": "string" },
+          "alignment": {
+            "type": "string",
+            "enum": ["left", "center", "right"]
+          }
+        }
+      }
+    },
+    "styles": {
+      "type": "object",
+      "description": "樣式定義 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "header": { "$ref": "#/$defs/cellStyle" },
+        "data": { "$ref": "#/$defs/cellStyle" },
+        "total": { "$ref": "#/$defs/cellStyle" }
+      }
+    },
+    "terms": {
+      "type": "object",
+      "description": "條款定義 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "header_text": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "cellStyle": {
+      "type": "object",
+      "properties": {
+        "font_name": { "type": "string" },
+        "font_size": { "type": "integer" },
+        "bold": { "type": "boolean" },
+        "bg_color": { "type": "string" },
+        "border": { "type": "boolean" }
+      }
+    }
+  }
+}

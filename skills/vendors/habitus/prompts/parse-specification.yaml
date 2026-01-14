@@ -1,4 +1,7 @@
 # 規格解析 Prompt 模板
+# _disclosure_level: 4 (L4: 執行層 - LLM 呼叫時才載入)
+
+_disclosure_level: 4
 
 system: |
   你是專業的 FF&E (Furniture, Fixtures & Equipment) 文件解析專家。

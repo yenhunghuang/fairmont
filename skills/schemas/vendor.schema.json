@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fairmont.local/schemas/vendor.schema.json",
+  "title": "Vendor Skill Configuration",
+  "description": "供應商配置 Schema - 定義 PDF 解析規則、Prompt 模板、圖片抽取等",
+  "type": "object",
+  "required": ["vendor"],
+  "properties": {
+    "vendor": {
+      "type": "object",
+      "description": "供應商基本資訊 (L1 識別層)",
+      "required": ["name", "identifier"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "供應商名稱",
+          "examples": ["HABITUS Design Group"]
+        },
+        "identifier": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "供應商識別碼 (小寫英數)",
+          "examples": ["habitus"]
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "配置版本 (SemVer)",
+          "default": "1.0.0"
+        },
+        "requires": {
+          "type": "object",
+          "description": "版本依賴聲明",
+          "properties": {
+            "merge_rules": {
+              "type": "string",
+              "pattern": "^[<>=]+\\d+\\.\\d+\\.\\d+$",
+              "description": "所需 merge-rules 版本"
+            },
+            "output_format": {
+              "type": "string",
+              "pattern": "^[<>=]+\\d+\\.\\d+\\.\\d+$",
+              "description": "所需 output-format 版本"
+            }
+          }
+        }
+      }
+    },
+    "document_types": {
+      "type": "object",
+      "description": "文件類型定義 (L2 結構層)",
+      "_disclosure_level": 2,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "filename_patterns": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "has_index_section": { "type": "boolean" },
+          "provides": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "does_not_provide": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "document_structure": {
+      "type": "object",
+      "description": "頁面結構定義 (L2 結構層)",
+      "_disclosure_level": 2,
+      "properties": {
+        "page_types": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "identifiers": { "type": "array" },
+              "has_product_image": { "type": "boolean" },
+              "provides": { "type": "array" }
+            }
+          }
+        },
+        "page_sequence": { "type": "object" }
+      }
+    },
+    "image_extraction": {
+      "type": "object",
+      "description": "圖片抽取規則 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "page_offset": {
+          "type": "object",
+          "properties": {
+            "default": { "type": "integer", "minimum": 0 },
+            "by_document_type": {
+              "type": "object",
+              "additionalProperties": { "type": "integer" }
+            }
+          }
+        },
+        "product_image": {
+          "type": "object",
+          "properties": {
+            "source_page": { "type": "string" },
+            "selection_strategy": { "type": "string" },
+            "min_area_ratio": { "type": "number" },
+            "min_area_px": { "type": "integer" }
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "description": { "type": "string" },
+              "rules": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "dimension_formatting": {
+      "type": "object",
+      "description": "Dimension 格式化規則 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "fabric_keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "circular_keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "fabric_format_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "furniture_dimension": { "type": "object" }
+      }
+    },
+    "fabric_detection": {
+      "type": "object",
+      "description": "面料偵測規則 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "正則表達式 pattern"
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "field_extraction": {
+      "type": "object",
+      "description": "欄位提取規則 (L3 規則層)",
+      "_disclosure_level": 3
+    },
+    "prompts": {
+      "type": "object",
+      "description": "LLM Prompt 模板 (L4 執行層)",
+      "_disclosure_level": 4,
+      "properties": {
+        "parse_specification": { "$ref": "#/$defs/promptTemplate" },
+        "parse_quantity_summary": { "$ref": "#/$defs/promptTemplate" },
+        "parse_project_metadata": { "$ref": "#/$defs/promptTemplate" },
+        "classify_image": { "$ref": "#/$defs/promptTemplate" }
+      }
+    }
+  },
+  "$defs": {
+    "promptTemplate": {
+      "type": "object",
+      "properties": {
+        "system": {
+          "type": "string",
+          "description": "System prompt"
+        },
+        "user_template": {
+          "type": "string",
+          "description": "User prompt template (支援 {variable} 替換)"
+        },
+        "user_template_file": {
+          "type": "string",
+          "description": "外部 Prompt 檔案路徑"
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 # 明細表內部結構（頁面類型）
+# _disclosure_level: 2 (L2: 結構層 - 初始化時載入)
 
 document_structure:
+  _disclosure_level: 2
   # 頁面類型識別
   page_types:
     index_page:

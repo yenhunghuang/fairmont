@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fairmont.local/schemas/merge-rules.schema.json",
+  "title": "Merge Rules Configuration",
+  "description": "合併規則配置 Schema - 定義跨表合併、角色偵測、欄位合併策略",
+  "type": "object",
+  "required": ["merge_rules"],
+  "properties": {
+    "merge_rules": {
+      "type": "object",
+      "description": "合併規則基本資訊 (L1 識別層)",
+      "_disclosure_level": 1,
+      "required": ["name", "identifier"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "規則名稱"
+        },
+        "identifier": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "規則識別碼"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "配置版本 (SemVer)"
+        }
+      }
+    },
+    "role_detection": {
+      "type": "object",
+      "description": "文件角色偵測規則 (L2 結構層)",
+      "_disclosure_level": 2,
+      "properties": {
+        "quantity_summary": {
+          "type": "object",
+          "properties": {
+            "keywords": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "數量總表識別關鍵字"
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "關鍵字匹配門檻"
+            }
+          }
+        },
+        "detail_specification": {
+          "type": "object",
+          "properties": {
+            "keywords": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "threshold": { "type": "number" }
+          }
+        }
+      }
+    },
+    "field_merge": {
+      "type": "object",
+      "description": "欄位合併策略 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "default_strategy": {
+          "type": "string",
+          "enum": ["fill_empty", "concatenate", "override", "keep_first"],
+          "description": "預設合併策略"
+        },
+        "field_strategies": {
+          "type": "object",
+          "description": "各欄位專屬策略",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "strategy": {
+                "type": "string",
+                "enum": ["fill_empty", "concatenate", "override", "keep_first"]
+              },
+              "separator": {
+                "type": "string",
+                "description": "concatenate 策略的分隔符"
+              }
+            }
+          }
+        }
+      }
+    },
+    "sorting": {
+      "type": "object",
+      "description": "排序規則 (L3 規則層)",
+      "_disclosure_level": 3,
+      "properties": {
+        "fabric_follows_furniture": {
+          "type": "boolean",
+          "description": "面料跟隨家具排序"
+        },
+        "item_no_normalization": {
+          "type": "object",
+          "properties": {
+            "uppercase": { "type": "boolean" },
+            "remove_spaces": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "fabric_detection": {
+      "type": "object",
+      "description": "面料偵測規則 (可選，若 vendor 未定義)",
+      "_disclosure_level": 3,
+      "properties": {
+        "pattern": { "type": "string" },
+        "description": { "type": "string" },
+        "belongs_to": {
+          "type": "string",
+          "enum": ["vendor", "core"],
+          "description": "配置歸屬標記"
+        }
+      }
+    }
+  }
+}

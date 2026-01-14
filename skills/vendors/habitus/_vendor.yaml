@@ -8,6 +8,10 @@
 #   - 1.2.0: 強化 fabric dimension/brand 規則，新增多個 fabric 輸出範例，修正 LLM 省略問題
 
 vendor:
+  _disclosure_level: 1  # L1: 識別層
   name: "HABITUS Design Group"
   identifier: "habitus"
   version: "1.2.0"
+  requires:
+    merge_rules: ">=1.1.0"
+    output_format: ">=1.0.0"

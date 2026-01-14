@@ -1,6 +1,8 @@
 # Dimension 格式化規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
 
 dimension_formatting:
+  _disclosure_level: 3
   # 面料相關關鍵字（用於判斷 is_fabric）
   fabric_keywords:
     - "fabric"

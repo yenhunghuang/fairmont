@@ -1,6 +1,8 @@
 # 欄位提取規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
 
 field_extraction:
+  _disclosure_level: 3
   item_no:
     location: "specification_page"
     pattern: "ITEM NO\\.?:\\s*([A-Z0-9\\-\\.]+)"

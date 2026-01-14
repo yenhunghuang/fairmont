@@ -1,6 +1,8 @@
 # 文件類型定義（HABITUS 使用多種文件）
+# _disclosure_level: 2 (L2: 結構層 - 初始化時載入)
 
 document_types:
+  _disclosure_level: 2
   # 家具類明細表（有 Index 區塊）
   furniture_specification:
     description: "家具明細表 - 包含 Index 區塊 + 詳細規格"
