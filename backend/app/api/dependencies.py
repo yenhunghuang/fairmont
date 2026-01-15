@@ -1,7 +1,10 @@
 """API dependencies and injection."""
 
+import secrets
 from typing import Annotated
-from fastapi import Depends, UploadFile, File
+
+from fastapi import Depends, UploadFile, File, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 
 from ..store import InMemoryStore, get_store
@@ -92,3 +95,43 @@ async def validate_pdf_files(
 StoreDep = Annotated[InMemoryStore, Depends(get_store_dependency)]
 FileValidatorDep = Annotated[FileValidator, Depends(get_file_validator)]
 FileManagerDep = Annotated[FileManager, Depends(get_file_manager)]
+
+
+# =============================================================================
+# API Key Bearer Authentication
+# =============================================================================
+
+# Bearer scheme（讓 Swagger UI 顯示 Authorize 按鈕）
+api_key_scheme = HTTPBearer(
+    scheme_name="Bearer",
+    description="請輸入 API Key",
+)
+
+
+async def verify_api_key(
+    credentials: HTTPAuthorizationCredentials = Depends(api_key_scheme),
+) -> str:
+    """
+    驗證 API Key.
+
+    - 檢查 Authorization: Bearer <api_key>
+    - 返回驗證後的 API Key
+
+    Raises:
+        HTTPException: 401 Unauthorized if API Key is invalid
+    """
+    token = credentials.credentials
+
+    # Use time-safe comparison to prevent timing attacks
+    if not secrets.compare_digest(token.encode(), settings.api_key.encode()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="無效的 API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return token
+
+
+# Type alias for API Key dependency
+APIKeyDep = Annotated[str, Depends(verify_api_key)]

@@ -1,0 +1,173 @@
+# 跨表合併規則配置
+# 版本: 1.1.0
+# 更新日期: 2025-12-30
+# 適用: 多份 PDF 文件的 BOQ 項目合併
+#
+# 設計原則：
+#   - 客戶輸出相關（惠而蒙 Excel）→ 硬編碼或此處配置
+#   - 供應商輸入相關（PDF 格式）→ vendors/*.yaml 配置
+#
+# 已移至 vendors/*.yaml 的配置：
+#   - fabric_detection.pattern（不同供應商格式不同）
+#
+# 硬編碼實現（不在此配置）：
+#   - 排序演算法（面料跟隨家具）
+#   - Item No. 正規化邏輯
+
+rules:
+  name: "Default Merge Rules"
+  identifier: "default"
+  version: "1.1.0"
+
+# ============================================================
+# 文件角色偵測
+# ============================================================
+role_detection:
+  # 數量總表
+  quantity_summary:
+    filename_keywords:
+      - "qty"
+      - "overall"
+      - "summary"
+      - "數量"
+      - "總量"
+      - "總表"
+      - "quantity"
+      - "quantities"
+      - "index"
+    content_indicators:
+      - "Total Qty"
+      - "Quantity Summary"
+      - "Overall Quantity"
+    display_name: "數量總表"
+
+  # 家具明細規格表
+  detail_spec:
+    filename_keywords:
+      - "casegoods"
+      - "seating"
+      - "lighting"
+      - "upholstered"
+      - "specification"
+      - "spec"
+      - "furniture"
+    content_indicators:
+      - "DESCRIPTION"
+      - "FURNITURE COM:"
+      - "ITEM NO.:"
+    display_name: "家具明細規格表"
+
+  # 面料明細規格表
+  fabric_spec:
+    filename_keywords:
+      - "fabric"
+      - "leather"
+      - "vinyl"
+      - "textile"
+      - "upholstery"
+    content_indicators:
+      - "ITEM:"
+      - "VENDOR:"
+      - "PATTERN:"
+      - "COLOR:"
+    display_name: "面料明細規格表"
+
+  # 平面圖
+  floor_plan:
+    filename_keywords:
+      - "floor"
+      - "plan"
+      - "layout"
+      - "平面圖"
+      - "平面"
+      - "配置圖"
+    content_indicators:
+      - "FLOOR PLAN"
+      - "LAYOUT"
+    display_name: "平面圖"
+
+  # 未知類型
+  unknown:
+    display_name: "未知"
+
+# ============================================================
+# 欄位合併規則
+# ============================================================
+field_merge:
+  # 可合併欄位清單（除圖片外）
+  mergeable_fields:
+    - "description"
+    - "dimension"
+    - "uom"
+    - "unit_cbm"
+    - "note"
+    - "location"
+    - "materials_specs"
+    - "brand"
+
+  # 欄位合併策略
+  strategies:
+    default:
+      description: "先上傳優先，空值填補"
+      mode: "fill_empty"
+
+    location:
+      description: "位置欄位：合併多個位置"
+      mode: "concatenate"
+      separator: ", "
+
+    note:
+      description: "備註欄位：合併多個備註"
+      mode: "concatenate"
+      separator: "; "
+
+# ============================================================
+# 圖片合併規則
+# ============================================================
+image_merge:
+  strategy: "highest_resolution"
+  description: "選擇解析度最高的圖片"
+
+  fallback_order:
+    - "detail_spec"
+    - "quantity_summary"
+
+# ============================================================
+# Item No. 正規化（僅保留警告設定，邏輯硬編碼）
+# ============================================================
+item_no_normalization:
+  warn_on_format_difference: true
+
+# ============================================================
+# 合併限制
+# ============================================================
+constraints:
+  max_quantity_summary_docs: 1
+  error_message_multiple_qty: "上傳多份數量總表，請僅保留一份"
+  min_detail_spec_docs: 1
+  error_message_no_detail: "未上傳明細規格表，無法進行合併"
+  max_items_per_merge: 1000
+
+# ============================================================
+# 合併報告配置
+# ============================================================
+report:
+  statuses:
+    matched:
+      description: "已匹配"
+      display_name: "已匹配"
+      color: "green"
+
+    unmatched:
+      description: "未匹配（僅在明細規格表）"
+      display_name: "未匹配"
+      color: "orange"
+
+    quantity_only:
+      description: "僅數量總表"
+      display_name: "僅數量"
+      color: "yellow"
+
+  warnings:
+    quantity_only: "Item No. '{item_no}' 僅在數量總表中，無對應明細規格"
+    format_mismatch: "Item No. 格式不一致: '{original}' → '{normalized}'"

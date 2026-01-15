@@ -13,6 +13,25 @@
 - Q: 惠而蒙格式Excel報價單需要包含哪些必要欄位？ → A: NO., Item No., Description, Photo, Dimension, Qty, UOM, Note, Location, Materials Used/Specs（共10欄，排除價格/金額欄位）
 - Q: Excel報價單中的Photo欄位應如何呈現？ → A: 從PDF提取圖片，嵌入Excel儲存格
 
+### Session 2025-12-23
+
+- Q: 多 PDF 上傳時如何區分「數量總表」與「明細規格表」？
+  → A: 根據檔名自動偵測，檔名含 "Qty"、"Overall"、"Summary"、"數量" 視為數量總表
+- Q: 數量總表與明細規格表的數量欄位衝突時如何處理？
+  → A: 數量總表的 Qty 完全覆蓋明細規格表的數量
+- Q: 多份明細規格表有相同 Item No. 時如何處理？
+  → A: 合併欄位，不同欄位取不同來源（如 Casegoods 取尺寸，Fabric 取材料規格）
+- Q: 多明細規格表合併時，「第一個出現」的判定依據？
+  → A: 依上傳順序（先上傳的 PDF 優先）
+- Q: 多 PDF 同時包含相同 Item No. 的圖片時如何處理？
+  → A: 選擇解析度較高的圖片
+- Q: 預期單次處理的最大 PDF 總頁數？
+  → A: 200 頁
+- Q: 多 PDF 跨表合併的最大處理時間目標？
+  → A: 10 分鐘
+- Q: 明確排除的功能範圍（Out of Scope）？
+  → A: Google Sheets 功能先不實作
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - 上傳PDF並生成報價單 (Priority: P1)
@@ -31,27 +50,43 @@
 
 ---
 
-### User Story 2 - 多檔案上傳與合併處理 (Priority: P2)
+### User Story 2 - 多檔案上傳與跨表合併 (Priority: P1)
 
-客戶需要統整多份標案資料，上傳多個PDF檔案，系統合併處理後產出單一惠而蒙格式的Excel報價單。
+客戶上傳「數量總表」PDF（包含所有項目的總數量）與多份「明細規格表」PDF（包含項目詳細規格、圖片、尺寸等），系統根據檔名自動識別 PDF 角色，以 Item No. 為匹配鍵，將數量總表的 Qty 合併至明細規格表的項目，產出單一惠而蒙格式 Excel。
 
-**Why this priority**: 實際業務場景中，客戶常需處理多份文件。此功能建立在P1的單檔處理能力之上，擴展系統實用性。
+**Why this priority**: 此為客戶實際工作流程的核心需求。數量總表提供正確的總量，明細規格表提供完整的項目資訊，兩者必須正確合併才能產出準確報價單。
 
-**Independent Test**: 可透過上傳2-3份不同的PDF檔案，驗證系統能正確合併資料並產出單一整合報價單。
+**Independent Test**: 上傳 `Bay Tower Furniture - Overall Qty.pdf`（數量總表）與 `Casegoods & Seatings.pdf`、`Fabric & Leather.pdf`（明細規格表），驗證輸出 Excel 的 Qty 欄位數值來自數量總表，其他欄位來自明細規格表。
 
 **Acceptance Scenarios**:
 
-1. **Given** 用戶已進入上傳介面, **When** 用戶選擇多個PDF檔案上傳, **Then** 系統接受所有檔案並顯示檔案清單
-2. **Given** 多個PDF檔案已上傳, **When** 系統完成所有檔案解析, **Then** 系統合併所有BOQ資料並顯示統整後的材料表
-3. **Given** 統整資料已完成, **When** 用戶下載Excel, **Then** 產出的xls檔案包含所有檔案的合併資料
+1. **Given** 用戶上傳多個 PDF 檔案（含 1 份檔名包含 "Qty" 的數量總表）,
+   **When** 系統完成檔案接收,
+   **Then** 系統自動識別並標示各檔案角色（數量總表/明細規格表）
+
+2. **Given** 數量總表包含項目 "DLX-100" 數量為 239,
+   **When** 明細規格表 `Casegoods & Seatings.pdf` 也包含 "DLX-100",
+   **Then** 合併後該項目的 Qty 欄位為 239（來自數量總表），其他欄位（Description、Dimension、Photo）來自明細規格表
+
+3. **Given** `Casegoods & Seatings.pdf` 包含 "DLX-100" 的尺寸規格,
+   **When** `Fabric & Leather.pdf` 包含 "DLX-500" 的材料規格,
+   **Then** 兩者均正確匹配至對應項目，不同欄位從不同來源合併
+
+4. **Given** 明細規格表有項目 "DLX-999" 但數量總表無對應,
+   **When** 系統完成合併,
+   **Then** 該項目 Qty 欄位保留明細規格表原值並標示「數量未驗證」
+
+5. **Given** 數量總表有項目 "DLX-888" 但明細規格表無對應,
+   **When** 系統完成合併,
+   **Then** 系統在匹配報告中列出「未找到明細的項目」清單
 
 ---
 
-### User Story 3 - BOQ數量與平面圖核對 (Priority: P2)
+### User Story 3 - BOQ數量與平面圖核對 (Priority: P3)
 
 當BOQ中某些項目缺少數量資料時，系統從同時上傳的平面圖PDF中核對並補充數量資訊。
 
-**Why this priority**: 此功能解決實際業務痛點，確保報價單數據完整性，與P2並列因為它增強資料準確度。
+**Why this priority**: 此功能解決實際業務痛點，確保報價單數據完整性。因 User Story 2 已處理數量總表合併，平面圖核對優先級降低。
 
 **Independent Test**: 可透過上傳一份BOQ（部分項目無數量）與對應平面圖，驗證系統能從平面圖中識別並補充缺失數量。
 
@@ -86,6 +121,11 @@
 - 平面圖中無法識別對應數量時，系統保留該項目為空並標示「無法自動核對」
 - 上傳檔案超過系統限制時，系統應提示檔案大小或數量限制
 - 多個PDF中出現重複編號的項目時，系統應合併或提示用戶處理衝突
+- 上傳檔案中無數量總表時，系統應提示用戶確認是否繼續（僅使用明細規格表數量）
+- 上傳多份數量總表時，系統應報錯並要求用戶選擇唯一一份
+- Item No. 格式差異（如 "DLX-100" vs "DLX 100" vs "DLX100"）時，系統應嘗試標準化匹配
+- 數量總表的 Item No. 包含子項目編號（如 "DLX-100.1"）時，應獨立匹配不合併至父項目
+- 明細規格表的同一 Item No. 在不同頁面重複出現時，應合併為單一項目
 
 ## Requirements *(mandatory)*
 
@@ -109,11 +149,38 @@
 - **FR-016**: 系統MUST允許匿名使用，無需用戶登入或認證
 - **FR-017**: 系統MUST從PDF中提取家具/物料相關圖片，並嵌入至Excel報價單的Photo欄位儲存格中
 
+#### 跨表合併功能需求（User Story 2）
+
+- **FR-018**: 系統MUST根據檔名自動識別PDF角色：
+  - 檔名含 "Qty"、"Overall"、"Summary"、"數量"、"總量" → `quantity_summary`（數量總表）
+  - 其他 → `detail_spec`（明細規格表）
+- **FR-019**: 系統MUST支援手動覆寫自動識別的PDF角色
+- **FR-020**: 系統MUST以 Item No.（標準化後）為主鍵匹配跨PDF項目
+- **FR-021**: 系統MUST執行 Item No. 標準化處理（移除空格、統一大小寫、統一標點符號如 "-" 和 "."）
+- **FR-022**: 數量總表的 Qty 值MUST覆蓋明細規格表的數量（優先級最高）
+- **FR-023**: 多份明細規格表有相同 Item No. 時，系統MUST合併非空欄位：
+  - 非空欄位以上傳順序優先（先上傳的 PDF 優先）
+  - 若某欄位在 A 表為空、B 表有值，則取 B 表值
+- **FR-024**: 系統MUST產出匹配報告，包含：
+  - 成功匹配項目數
+  - 僅在數量總表的項目（無明細）
+  - 僅在明細規格表的項目（數量未驗證）
+  - Item No. 格式差異警告
+- **FR-025**: 系統SHOULD在無數量總表時仍可處理（僅合併明細規格表）
+- **FR-026**: 多份明細規格表包含相同 Item No. 的圖片時，系統MUST選擇解析度較高的圖片（以像素總數 width × height 判定）
+
 ### Key Entities
 
 - **BOQ項目 (BOQ Item)**: 代表一筆家具或物料資料，包含以下屬性：NO.（序號）、Item No.（項目編號）、Description（描述）、Photo（照片）、Dimension（尺寸 WxDxH mm）、Qty（數量）、UOM（單位）、Note（備註）、Location（位置）、Materials Used/Specs（材料/規格）
 - **報價單 (Quotation)**: 由多個BOQ項目組成的輸出文件，遵循惠而蒙格式規範，必須包含10個標準欄位（排除價格/金額欄位）
-- **來源文件 (Source Document)**: 用戶上傳的PDF檔案，可能是BOQ文件或平面圖
+- **來源文件 (Source Document)**: 用戶上傳的PDF檔案，新增 `document_role` 屬性：
+  - `quantity_summary`: 數量總表，僅包含 Item No. 與 Qty
+  - `detail_spec`: 明細規格表，包含完整欄位資訊
+  - `floor_plan`: 平面圖（用於數量核對）
+  - `unknown`: 無法自動識別，需用戶確認
+- **數量總表 (Quantity Summary)**: 包含所有項目的總數量對照表（如 `Bay Tower Furniture - Overall Qty.pdf`），主要欄位：CODE（對應 Item No.）、TOTAL QTY（對應 Qty）
+- **明細規格表 (Detail Specification)**: 包含項目完整規格資訊（如 `Casegoods & Seatings.pdf`、`Fabric & Leather.pdf`），欄位：Item No.、Description、Photo、Dimension、UOM、Note、Location、Materials/Specs、Brand 等
+- **匹配報告 (Merge Report)**: 跨PDF合併的結果摘要，包含：成功匹配項目數、僅在數量總表的項目、僅在明細規格表的項目、格式差異警告
 - **材料驗證記錄 (Material Verification)**: 包含項目對照資訊，記錄每筆資料的來源與驗證狀態
 
 ## Assumptions
@@ -123,6 +190,18 @@
 - 平面圖中的家具數量標示遵循建築製圖慣例
 - 用戶具備基本電腦操作能力，能夠上傳檔案並下載Excel
 - 系統不需處理加密或密碼保護的PDF檔案
+- 數量總表的 Item No. 編碼規則與明細規格表一致，可透過標準化後進行匹配
+- 每次上傳最多包含一份數量總表，多份明細規格表
+- 單次處理的 PDF 總頁數上限為 200 頁（超過時系統應提示用戶分批處理）
+
+## Out of Scope
+
+本階段明確不實作的功能：
+
+- **Google Sheets 匯出功能**: 暫不支援匯出至 Google Sheets，僅提供 Excel 下載
+- **用戶編輯 BOQ 項目**: 用戶無法在系統內修改解析結果，需透過 Excel 編輯
+- **歷史記錄與版本管理**: 不保留用戶上傳與處理歷史
+- **多語系支援**: 介面與錯誤訊息僅支援繁體中文
 
 ## Success Criteria *(mandatory)*
 
@@ -135,3 +214,7 @@
 - **SC-005**: 系統支援處理單一PDF檔案最大50MB
 - **SC-006**: 90%的用戶能在首次使用時成功完成報價單生成流程
 - **SC-007**: 平面圖數量核對功能準確率達到80%以上
+- **SC-008**: Item No. 跨PDF匹配成功率達95%以上（標準化後）
+- **SC-009**: 數量總表 Qty 正確覆蓋率達100%（匹配成功的項目）
+- **SC-010**: 多明細規格表欄位合併正確率達90%以上
+- **SC-011**: 多 PDF 跨表合併的完整流程（上傳至下載）可在 10 分鐘內完成（最大 200 頁）

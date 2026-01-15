@@ -1,0 +1,288 @@
+# Fairmont Excel 輸出格式配置
+# 版本: 1.0.0
+# 更新日期: 2025-12-26
+# 適用: 惠而蒙報價單 Excel 格式
+
+format:
+  name: "Fairmont Quotation Format"
+  identifier: "fairmont"
+  version: "1.0.0"
+
+# ============================================================
+# 公司資訊
+# ============================================================
+company:
+  name: "Fairmont Designs & Hospitality"
+  address: "8F, #108, Sec. 5, Nanjing E. Rd., Taipei 105, Taiwan"
+  phone: "+886-2-2712-9606"
+  fax: "+886-2-2712-1626"
+  website: "www.fairmontdesignshospitality.com"
+  logo_file: "docs/assets/fairmont-logo.jpg"
+
+# ============================================================
+# Excel 版面配置
+# ============================================================
+layout:
+  # 工作表名稱
+  sheet_name: "報價單"
+
+  # 列配置
+  rows:
+    header_start: 1       # 公司表頭起始列
+    data_header: 16       # 欄位標題列
+    data_start: 17        # 資料起始列
+
+  # Logo 配置
+  logo:
+    position: "A1"
+    width_px: 280
+    height_px: 75
+    span_cols: 3          # 跨越 A-C 欄
+    span_rows: 3          # 跨越 1-3 列
+
+# ============================================================
+# 欄位定義（共 15 欄）
+# ============================================================
+columns:
+  - header: "NO."
+    field: "no"
+    width: 5
+    alignment: "center"
+    description: "序號（系統自動產生）"
+
+  - header: "Item no."
+    field: "item_no"
+    width: 13
+    alignment: "left"
+    description: "項目編號"
+
+  - header: "Description"
+    field: "description"
+    width: 20
+    alignment: "left"
+    description: "品名描述"
+
+  - header: "Photo"
+    field: "photo"
+    width: 15
+    alignment: "center"
+    description: "產品圖片（Base64 嵌入）"
+    type: "image"
+    image_config:
+      width_px: 105
+      height_px: 75
+      row_height_px: 90
+
+  - header: "Dimension\nWxDxH (mm)"
+    field: "dimension"
+    width: 18
+    alignment: "left"
+    description: "尺寸規格"
+
+  - header: "Qty"
+    field: "qty"
+    width: 8
+    alignment: "center"
+    number_format: "0"
+    description: "數量"
+
+  - header: "UOM"
+    field: "uom"
+    width: 6
+    alignment: "center"
+    description: "單位"
+
+  - header: "Unit Rate\n(USD)"
+    field: "unit_rate"
+    width: 12
+    alignment: "right"
+    editable: true
+    description: "單價（留空由使用者填寫）"
+
+  - header: "Amount\n(USD)"
+    field: "amount"
+    width: 12
+    alignment: "right"
+    editable: true
+    description: "金額（留空由使用者填寫）"
+
+  - header: "Unit\nCBM"
+    field: "unit_cbm"
+    width: 8
+    alignment: "center"
+    number_format: "0.00"
+    description: "單位材積"
+
+  - header: "Total\nCBM"
+    field: "total_cbm"
+    width: 8
+    alignment: "center"
+    number_format: "0.00"
+    formula: "=F{row}*J{row}"
+    description: "總材積（公式 =Qty*Unit CBM）"
+
+  - header: "Note"
+    field: "note"
+    width: 20
+    alignment: "left"
+    description: "備註"
+
+  - header: "Location"
+    field: "location"
+    width: 15
+    alignment: "left"
+    description: "位置"
+
+  - header: "Materials Used / Specs"
+    field: "materials_specs"
+    width: 20
+    alignment: "left"
+    description: "材料/規格說明"
+
+  - header: "Brand"
+    field: "brand"
+    width: 12
+    alignment: "left"
+    description: "品牌（僅面料類顯示）"
+    conditional:
+      show_only_for: "fabric"
+
+# ============================================================
+# 樣式定義
+# ============================================================
+styles:
+  # 標題列樣式
+  header:
+    fill_color: "366092"
+    font_color: "FFFFFF"
+    font_size: 11
+    font_bold: true
+    alignment: "center"
+    wrap_text: true
+    row_height: 25
+
+  # 資料列樣式
+  data:
+    border: "thin"
+    row_height: 85
+
+  # 公司表頭樣式
+  title:
+    font_size: 18
+    font_bold: true
+
+# ============================================================
+# 表頭欄位配置
+# ============================================================
+header_fields:
+  # 右側標籤欄位
+  - label: "QUOTE"
+    row: 1
+    col: 10
+    style: "title"
+
+  - label: "Project Name："
+    row: 5
+    col: 8
+    value_col: 10
+    value_field: "project_name"
+
+  - label: "RFQ #："
+    row: 7
+    col: 8
+    value_col: 10
+    value_field: "title"
+
+  - label: "Date："
+    row: 8
+    col: 8
+    value_col: 10
+    value_field: "created_at"
+    format: "%m/%d/%Y"
+
+  - label: "Revision："
+    row: 9
+    col: 8
+    value_col: 10
+    default_value: "1"
+
+  # 左側公司資訊
+  - label: "address"
+    row: 5
+    col: 2
+    value_from: "company"
+
+  - label: "phone"
+    row: 6
+    col: 2
+    prefix: "p "
+    value_from: "company"
+
+  - label: "fax"
+    row: 7
+    col: 2
+    prefix: "f  "
+    value_from: "company"
+
+  - label: "website"
+    row: 8
+    col: 2
+    value_from: "company"
+
+  # 客戶資訊區塊
+  - label: "Customer"
+    row: 11
+    col: 2
+
+  - label: "Production Type："
+    row: 11
+    col: 8
+    value_col: 10
+    default_value: "BULK"
+
+  - label: "Company："
+    row: 12
+    col: 2
+
+  - label: "Shipping Term："
+    row: 12
+    col: 8
+    value_col: 10
+    default_value: "FOB"
+
+  - label: "ATTN："
+    row: 13
+    col: 2
+
+  - label: "Port of Loading："
+    row: 13
+    col: 8
+    value_col: 10
+    default_value: "Nantong China"
+
+  - label: "Email："
+    row: 14
+    col: 2
+
+# ============================================================
+# 條款與備註
+# ============================================================
+terms:
+  header: "Terms & Remarks:"
+  items:
+    - "This quotation is only valid for 15days after submission;"
+    - "Supply only, exclude any work at site, including but not limited to: unloading, cross-docking, warehousing, assembling and installation;"
+    - "FOB term, freight cost is excluded;"
+    - "Payment term : 25% deposit before production, 25% upon approval of control samples & shop drawings, 50% balance before shipment by T/T;"
+    - "First-of-type, and/or prototypes are not covered by the unit rate above and will be charged double prices under ex-work term;"
+    - "Fabrics & leathers unit rates are based on local source similar to match specification;"
+    - "Production leadtime : 90 days production based on all details confirmed and material arrived factory;"
+    - "All the product specification detail as in the following pages. CBM / Gross weight / Package dimension are all estimated only;"
+    - "Port of loading will not be confirmed until the order been placed. FD may use any of its factories for production unless specified;"
+    - "Quote is contingent on locally sourced contract grade hardware for hinges, rails, etc. Upgrade is available at client's cost;"
+    - "Quote is contingent on indoor use only; unless otherwise stated in the note columns;"
+    - "Quote is contingent on CA-117 FR & CARB P2 VOC compliant materials. Upgrade is available at client's cost;"
+    - "Quote is contingent on specification in tender package. Any changes and/or alterations are subject to additional charges;"
+    - "Exclude any electrical product, including but not limited to lighting, socket, outlet, etc.; unless otherwise stated in the note columns;"
+    - "Bank guarantee and performance bond cost are exclusive; Calculation: Contract value x 1% / 360 x duration(days) + USD100.00;"
+    - "The actual fabric amount may be subject to change upon completion and confirmation of the shop drawings;"

@@ -3,19 +3,19 @@
 Updated to support Base64 output for embedding images in Excel (完全比照惠而蒙格式).
 """
 
-import logging
-import fitz  # PyMuPDF
 import base64
-from pathlib import Path
-from typing import List, Tuple, Optional, Dict
-import uuid
 import io
+import logging
+import uuid
+from functools import lru_cache
+from pathlib import Path
 
+import fitz  # PyMuPDF
 from PIL import Image
 
-from ..models import ExtractedImage
-from ..utils import ErrorCode, raise_error, FileManager
 from ..config import settings
+from ..models import ExtractedImage
+from ..utils import ErrorCode, FileManager, raise_error
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class ImageExtractorService:
         )
         logger.info(f"Image extractor initialized with images_dir: {self.file_manager.images_dir}")
 
-    def extract_images(self, file_path: str, document_id: str) -> List[str]:
+    def extract_images(self, file_path: str, document_id: str) -> list[str]:
         """
         Extract images from PDF file using page rendering approach.
 
@@ -123,7 +123,7 @@ class ImageExtractorService:
         document_id: str,
         max_width: int = 400,
         max_height: int = 300,
-    ) -> List[Dict[str, any]]:
+    ) -> list[dict[str, any]]:
         """
         Extract images from PDF and return as Base64 encoded strings.
 
@@ -205,7 +205,7 @@ class ImageExtractorService:
         self,
         file_path: str,
         document_id: str,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Extract all images with raw bytes for Gemini Vision matching.
 
@@ -302,7 +302,7 @@ class ImageExtractorService:
             raise
 
     @staticmethod
-    def image_path_to_base64(image_path: str) -> Optional[str]:
+    def image_path_to_base64(image_path: str) -> str | None:
         """
         Convert an existing image file to Base64 encoded string.
 
@@ -351,7 +351,7 @@ class ImageExtractorService:
         page: fitz.Page,
         page_num: int,
         document_id: str,
-    ) -> List[dict]:
+    ) -> list[dict]:
         """
         Extract images by rendering the page and cropping image regions.
 
@@ -433,7 +433,7 @@ class ImageExtractorService:
 
         return extracted
 
-    def _get_merged_image_rects(self, page: fitz.Page) -> List[fitz.Rect]:
+    def _get_merged_image_rects(self, page: fitz.Page) -> list[fitz.Rect]:
         """
         Get merged image rectangles from page.
 
@@ -475,9 +475,9 @@ class ImageExtractorService:
 
     def _merge_rects(
         self,
-        rects: List[fitz.Rect],
+        rects: list[fitz.Rect],
         tolerance: float = 5.0,
-    ) -> List[fitz.Rect]:
+    ) -> list[fitz.Rect]:
         """
         Merge overlapping or adjacent rectangles.
 
@@ -597,8 +597,9 @@ class ImageExtractorService:
             APIError: If conversion fails
         """
         try:
-            from PIL import Image
             import io
+
+            from PIL import Image
 
             with Image.open(image_path) as img:
                 # Convert RGBA to RGB if target is JPEG
@@ -635,8 +636,9 @@ class ImageExtractorService:
             APIError: If compression fails
         """
         try:
-            from PIL import Image
             import io
+
+            from PIL import Image
 
             with Image.open(image_path) as img:
                 output = io.BytesIO()
@@ -650,13 +652,7 @@ class ImageExtractorService:
             )
 
 
-# Global extractor instance
-_extractor_instance: ImageExtractorService = None
-
-
+@lru_cache(maxsize=1)
 def get_image_extractor() -> ImageExtractorService:
-    """Get or create image extractor instance."""
-    global _extractor_instance
-    if _extractor_instance is None:
-        _extractor_instance = ImageExtractorService()
-    return _extractor_instance
+    """Get or create image extractor instance (thread-safe via lru_cache)."""
+    return ImageExtractorService()

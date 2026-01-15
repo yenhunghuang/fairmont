@@ -2,17 +2,24 @@ openapi: 3.0.3
 info:
   title: 家具報價單系統 API
   description: |
-    家具報價單系統後端 API，提供 PDF 上傳、BOQ 解析、Excel 報價單產出功能。
+    家具報價單系統後端 API，提供 PDF 上傳、BOQ 解析、跨表合併、Excel 報價單產出功能。
 
     ## 功能概述
-    - PDF 檔案上傳與管理
+    - PDF 檔案上傳與管理（支援多檔上傳）
     - BOQ 表格自動解析（使用 Gemini AI）
-    - 平面圖數量核對
+    - **跨表合併**：數量總表 + 明細規格表自動合併
+    - 平面圖數量核對（已棄用）
     - 惠而蒙格式 Excel 報價單產出
+
+    ## 跨表合併流程 (2025-12-23 新增)
+    1. 上傳多個 PDF（含數量總表 + 明細規格表）
+    2. 系統自動偵測文件角色（依檔名關鍵字）
+    3. 解析各文件後執行跨表合併
+    4. 產出合併報告與報價單
 
     ## 錯誤處理
     所有錯誤回應皆使用繁體中文訊息。
-  version: 1.0.0
+  version: 2.0.0
   contact:
     name: API 支援
 
@@ -29,6 +36,8 @@ tags:
     description: 檔案上傳
   - name: Parse
     description: PDF 解析
+  - name: Merge
+    description: 跨表合併（2025-12-23 新增）
   - name: Export
     description: Excel 匯出
   - name: Task
@@ -75,13 +84,13 @@ paths:
                   items:
                     type: string
                     format: binary
-                  description: PDF 檔案（最多 5 個）
-                  maxItems: 5
+                  description: PDF 檔案（最多 10 個）
+                  maxItems: 10
                 document_type:
                   type: string
                   enum: [boq, floor_plan, auto]
                   default: auto
-                  description: 文件類型（auto 表示自動偵測）
+                  description: 文件類型（auto 表示自動偵測，推薦使用 auto 以啟用跨表合併）
               required:
                 - files
       responses:
@@ -321,6 +330,52 @@ paths:
               schema:
                 $ref: '#/components/schemas/Quotation'
 
+  /api/v1/quotations/merge:
+    post:
+      tags:
+        - Merge
+      summary: 建立跨表合併報價單
+      description: |
+        從多個 PDF 文件建立跨表合併報價單。
+
+        **跨表合併流程**：
+        1. 自動偵測各文件角色（數量總表 vs 明細規格表）
+        2. 解析數量總表取得 Item No. + Total Qty
+        3. 解析明細規格表取得完整 15 欄資料
+        4. 依 Item No. 配對，用數量總表的 qty 覆蓋明細表
+        5. 多明細表欄位依上傳順序優先合併
+        6. 圖片選擇最高解析度
+
+        **檔名關鍵字偵測**：
+        - 數量總表：`qty`, `overall`, `summary`, `數量`, `總量`, `總表`
+        - 其他：視為明細規格表
+      operationId: createMergedQuotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeQuotationRequest'
+      responses:
+        '202':
+          description: 合併任務已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeTaskResponse'
+        '400':
+          description: 請求無效（無有效文件、文件角色錯誤等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 找不到指定文件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/quotations/{quotation_id}:
     get:
       tags:
@@ -338,6 +393,30 @@ paths:
                 $ref: '#/components/schemas/Quotation'
         '404':
           description: 找不到報價單
+
+  /api/v1/quotations/{quotation_id}/merge-report:
+    get:
+      tags:
+        - Merge
+      summary: 取得合併報告
+      description: |
+        取得跨表合併的詳細報告，包含：
+        - 各項目的合併狀態（配對成功/未配對/僅在數量總表）
+        - 欄位來源追蹤（每個欄位來自哪個文件）
+        - 圖片選擇說明
+        - 警告訊息
+      operationId: getMergeReport
+      parameters:
+        - $ref: '#/components/parameters/QuotationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeReport'
+        '404':
+          description: 找不到報價單或合併報告
 
   /api/v1/quotations/{quotation_id}/items:
     get:
@@ -590,6 +669,18 @@ components:
         document_type:
           type: string
           enum: [boq, floor_plan, unknown]
+        document_role:
+          type: string
+          enum: [quantity_summary, detail_spec, unknown]
+          description: 跨表合併角色（2025-12-23 新增）
+        upload_order:
+          type: integer
+          minimum: 0
+          description: 上傳順序（用於多明細表合併優先順序）
+        role_detected_by:
+          type: string
+          enum: [filename, manual, content]
+          description: 角色偵測方式
         parse_status:
           type: string
           enum: [pending, processing, completed, failed]
@@ -615,10 +706,11 @@ components:
     BOQItem:
       type: object
       description: |
-        BOQ 項目資料模型（完全比照惠而蒙格式 15 欄）
+        BOQ 項目資料模型（17 欄，含分類與附屬）
         Excel 欄位: A:NO., B:Item no., C:Description, D:Photo, E:Dimension,
         F:Qty, G:UOM, H:Unit Rate(留空), I:Amount(留空), J:Unit CBM,
-        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand
+        K:Total CBM(公式), L:Note, M:Location, N:Materials/Specs, O:Brand,
+        P:Category, Q:Affiliate
       required:
         - id
         - item_no
@@ -693,6 +785,43 @@ components:
           type: string
           enum: [boq, floor_plan]
           description: 數量資料來源（內部使用）
+          nullable: true
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.（用於跨表配對）
+          nullable: true
+        source_files:
+          type: array
+          items:
+            type: string
+          description: 來源文件 ID 列表（多來源時記錄所有來源）
+        merge_status:
+          type: string
+          enum: [matched, unmatched, quantity_only]
+          description: 合併狀態
+          nullable: true
+        qty_from_summary:
+          type: boolean
+          description: 數量是否來自數量總表
+          default: false
+        image_selected_from:
+          type: string
+          description: 圖片選自哪個來源文件 ID
+          nullable: true
+        category:
+          type: integer
+          enum: [1, 5]
+          description: |
+            P 欄：分類
+            - 1: 家具 (Furniture)
+            - 5: 面料 (Fabric)
+          nullable: true
+        affiliate:
+          type: string
+          description: |
+            Q 欄：附屬 - 面料來源的家具編號
+            - 面料項目：對應的家具 Item No.，多個用 ', ' 分隔（如 DLX-100, DLX-101）
+            - 家具項目：null
           nullable: true
         created_at:
           type: string
@@ -797,7 +926,7 @@ components:
           format: uuid
         task_type:
           type: string
-          enum: [parse_pdf, extract_images, generate_excel, analyze_floor_plan]
+          enum: [parse_pdf, extract_images, generate_excel, analyze_floor_plan, merge_documents, parse_quantity_summary]
         status:
           type: string
           enum: [pending, processing, completed, failed]
@@ -844,3 +973,204 @@ components:
         timestamp:
           type: string
           format: date-time
+
+    # ===== 跨表合併相關 Schema (2025-12-23 新增) =====
+
+    MergeQuotationRequest:
+      type: object
+      description: 跨表合併報價單請求
+      properties:
+        document_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: 來源文件 ID 列表（含數量總表和明細規格表）
+          minItems: 1
+          maxItems: 10
+        title:
+          type: string
+          description: 報價單標題
+        override_roles:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [quantity_summary, detail_spec]
+          description: |
+            手動覆蓋文件角色（document_id -> role）。
+            若不指定，系統將根據檔名關鍵字自動偵測。
+      required:
+        - document_ids
+
+    MergeTaskResponse:
+      type: object
+      description: 合併任務回應
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          description: 任務 ID
+        quotation_id:
+          type: string
+          format: uuid
+          description: 報價單 ID（任務完成後可用）
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        message:
+          type: string
+          example: 跨表合併任務已建立
+        detected_roles:
+          type: object
+          description: 偵測到的文件角色
+          properties:
+            quantity_summary:
+              type: object
+              properties:
+                document_id:
+                  type: string
+                filename:
+                  type: string
+              nullable: true
+            detail_specs:
+              type: array
+              items:
+                type: object
+                properties:
+                  document_id:
+                    type: string
+                  filename:
+                    type: string
+                  upload_order:
+                    type: integer
+
+    MergeReport:
+      type: object
+      description: 跨表合併報告
+      properties:
+        id:
+          type: string
+          format: uuid
+        quotation_id:
+          type: string
+          format: uuid
+        quantity_summary_doc_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 數量總表文件 ID
+        detail_spec_doc_ids:
+          type: array
+          items:
+            type: string
+          description: 明細規格表文件 ID 列表（按上傳順序）
+        total_items:
+          type: integer
+          minimum: 0
+          description: 合併後總項目數
+        matched_items:
+          type: integer
+          minimum: 0
+          description: 成功配對項目數（數量總表有對應項目）
+        unmatched_items:
+          type: integer
+          minimum: 0
+          description: 未配對項目數（僅在明細表，數量總表無對應）
+        quantity_only_items:
+          type: integer
+          minimum: 0
+          description: 僅在數量總表的項目數
+        match_rate:
+          type: number
+          format: float
+          description: 配對率（百分比）
+        merge_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MergeResultItem'
+          description: 各項目合併詳情
+        warnings:
+          type: array
+          items:
+            type: string
+          description: 合併過程警告訊息
+        created_at:
+          type: string
+          format: date-time
+        processing_time_ms:
+          type: integer
+          minimum: 0
+          description: 處理時間（毫秒）
+
+    MergeResultItem:
+      type: object
+      description: 單一項目的合併結果
+      properties:
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.
+        original_item_nos:
+          type: array
+          items:
+            type: string
+          description: 原始 Item No. 列表（來自不同文件）
+        status:
+          type: string
+          enum: [matched, unmatched, quantity_only]
+          description: |
+            合併狀態：
+            - matched: 成功配對（數量總表有對應項目）
+            - unmatched: 未配對（僅在明細表）
+            - quantity_only: 僅在數量總表出現
+        quantity_source:
+          type: string
+          format: uuid
+          nullable: true
+          description: 數量來源文件 ID
+        detail_sources:
+          type: array
+          items:
+            type: string
+          description: 明細來源文件 ID 列表（按上傳順序）
+        field_sources:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            欄位來源對照（field_name -> document_id）。
+            例如：{"description": "doc-123", "dimension": "doc-456"}
+        selected_image_source:
+          type: string
+          format: uuid
+          nullable: true
+          description: 選用圖片的來源文件 ID
+        image_resolution:
+          type: integer
+          nullable: true
+          description: 選用圖片的解析度 (width × height)
+
+    QuantitySummaryItem:
+      type: object
+      description: 數量總表項目
+      properties:
+        item_no_raw:
+          type: string
+          description: 原始 Item No.
+        item_no_normalized:
+          type: string
+          description: 標準化後的 Item No.
+        total_qty:
+          type: number
+          minimum: 0
+          description: 總數量
+        uom:
+          type: string
+          nullable: true
+          description: 單位
+        source_document_id:
+          type: string
+          format: uuid
+        source_page:
+          type: integer
+          minimum: 1
+          nullable: true

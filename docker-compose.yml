@@ -1,40 +1,43 @@
-version: '3.8'
-
 services:
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: furniture-quotation-backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-600}
+      - API_KEY=${API_KEY}
       - BACKEND_HOST=0.0.0.0
       - BACKEND_PORT=8000
+      - SKILLS_DIR=/skills
       - TEMP_DIR=/app/temp_files
       - EXTRACTED_IMAGES_DIR=/app/extracted_images
       - MAX_FILE_SIZE_MB=50
       - MAX_FILES=5
       - LOG_LEVEL=INFO
     volumes:
-      - ./backend/temp_files:/app/temp_files
-      - ./backend/extracted_images:/app/extracted_images
+      - ./skills:/skills:ro
+      - backend_temp:/app/temp_files
+      - backend_images:/app/extracted_images
     networks:
       - furniture-network
     restart: unless-stopped
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: furniture-quotation-frontend
     ports:
       - "8501:8501"
     environment:
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_HEADLESS=true
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8000
+      - API_KEY=${API_KEY}
     depends_on:
       - backend
     networks:
@@ -44,3 +47,7 @@ services:
 networks:
   furniture-network:
     driver: bridge
+
+volumes:
+  backend_temp:
+  backend_images:

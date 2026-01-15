@@ -89,6 +89,7 @@ tmp/
 *.tmp
 *.temp
 *.bak
+tmpclaude-*/
 
 # Upload/Download directories
 uploads/
@@ -122,3 +123,25 @@ backend/temp_files/
 backend/extracted_images/
 frontend/.streamlit/secrets.toml
 nul
+credentials/
+
+# Deployment scripts (may contain credentials)
+deploy*.py
+
+# Test outputs (根目錄)
+/test_*.json
+/test_*.xlsx
+/test_*.py
+
+# Claude 本地測試記錄
+.claude/ralph-loop.local.md
+
+# API responses
+api_response.json
+
+# Data directory (SQLite related)
+data/
+
+# Archived/Abandoned specs
+specs/002-sqlite-multistage-pipeline/
+specs/feature/google-sheets-integration/

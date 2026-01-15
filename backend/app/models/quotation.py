@@ -17,6 +17,9 @@ class Quotation(BaseModel):
     title: Optional[str] = Field(None, description="報價單標題")
     created_at: datetime = Field(default_factory=datetime.now)
 
+    # Fairmont 專案資訊 (從 PDF 解析)
+    project_name: Optional[str] = Field(None, description="專案名稱 (如 SOLAIRE BAY TOWER)")
+
     # 來源文件
     source_document_ids: List[str] = Field(
         default_factory=list, description="來源文件 ID 列表"
@@ -36,7 +39,7 @@ class Quotation(BaseModel):
         "pending", description="匯出狀態"
     )
     export_path: Optional[str] = Field(None, description="Excel 檔案路徑")
-    export_error: Optional[str] = Field(None, description="匯出錯誤訊息")
+    export_error: Optional[str] = Field(None, description="Excel 匯出錯誤訊息")
 
     def update_statistics(self) -> None:
         """更新統計資訊."""

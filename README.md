@@ -1,86 +1,87 @@
-# 家具報價單系統 (Fairmont Furniture Quotation System)
+# Fairmont 家具報價單自動化系統
 
-這是一個專為家具報價流程設計的自動化系統，旨在簡化從 PDF 報價單提取資訊、匹配圖片並匯出至 Excel 的流程。
+上傳 BOQ (Bill of Quantities) PDF，使用 Google Gemini AI 解析內容，自動產出惠而蒙格式 Excel 報價單。
 
-## 📌 專案概述
+![流程簡介](docs/assets/flow-overview.png)
 
-本專案是一個 POC (Proof of Concept) 實施，主要解決家具報價單處理中的手動操作痛點。系統能夠自動解析 PDF 文件，提取家具品項資訊，並透過確定性影像匹配技術 (Deterministic Image Matching) 準確關聯產品圖片。
+## 功能特色
 
-## ✨ 核心功能
+- **PDF 智慧解析** - Gemini AI 提取家具規格、面料資訊
+- **跨表合併** - 自動比對數量總表與明細規格表
+- **圖片匹配** - 確定性演算法配對產品圖片
+- **Excel 輸出** - 符合客戶 15 欄報價單格式
 
-- **自動化流程**：從上傳、處理到下載的一站式自動化體驗。
-- **PDF 解析**：高效提取 PDF 中的文字與結構化數據。
-- **影像匹配**：採用確定性影像匹配技術，確保家具品項與圖片的準確對應。
-- **Excel 匯出**：生成包含嵌入圖片的專業 Excel 報價單。
-- **實時進度**：前端提供實時處理進度顯示與步驟指示。
-- **響應式介面**：基於 Streamlit 構建的現代化、簡潔用戶介面。
+## 快速開始
 
-## 🛠️ 技術棧
+### 環境需求
 
-- **後端 (Backend)**: FastAPI (Python 3.10+)
-- **前端 (Frontend)**: Streamlit
-- **影像處理**: PyMuPDF (fitz), Pillow
-- **Excel 處理**: openpyxl
-- **AI 整合**: Google Gemini API (用於輔助解析)
-- **容器化**: Docker & Docker Compose
+- Python >= 3.11
+- Docker (可選)
 
-## 📂 專案結構
-
-```
-Fairmont/
-├── backend/            # FastAPI 後端服務
-│   ├── app/            # 核心邏輯與 API
-│   ├── tests/          # 後端測試
-│   └── requirements.txt
-├── frontend/           # Streamlit 前端應用
-│   ├── app.py          # 單一入口點
-│   └── requirements.txt
-├── docs/               # 技術文件與研究報告
-├── specs/              # 系統規格說明
-├── docker-compose.yml  # 容器編排配置
-└── Dockerfile.*        # Docker 構建文件
-```
-
-## 🚀 快速開始
-
-### 使用 Docker (推薦)
-
-1. 複製專案並進入目錄。
-2. 建立 `.env` 檔案並設定 `GEMINI_API_KEY`。
-3. 執行以下命令啟動系統：
+### 環境變數
 
 ```bash
-docker-compose up --build
+# .env (必填)
+GEMINI_API_KEY=your_gemini_api_key
+API_KEY=your_api_key
+
+# Langfuse 可觀測性 (選用)
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=your_public_key
+LANGFUSE_SECRET_KEY=your_secret_key
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-4. 訪問前端介面：`http://localhost:8501`
-5. 訪問 API 文件：`http://localhost:8000/docs`
+### 啟動服務
 
-### 本地開發環境
-
-#### 後端啟動：
 ```bash
+# Docker
+docker-compose up -d --build
+
+# 或本地開發
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-#### 前端啟動：
+### API 使用
+
 ```bash
-cd frontend
-pip install -r requirements.txt
-streamlit run app.py
+curl -X POST "http://localhost:8000/api/v1/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@your-file.pdf"
 ```
 
-## 📝 POC 實施進度
+**Swagger UI**: http://localhost:8000/docs
 
-目前已完成第一階段 (Week 1) 的核心功能優化，包括：
-- [x] 簡化前端導航與自動導向。
-- [x] 實現實時進度顯示。
-- [x] 強化錯誤處理機制。
-- [x] 品牌視覺設計與樣式統一。
+## 技術架構
 
-詳細資訊請參閱 [POC_IMPLEMENTATION_SUMMARY.md](POC_IMPLEMENTATION_SUMMARY.md)。
+| 元件 | 技術 |
+|------|------|
+| 後端 | FastAPI + Python 3.11 |
+| AI | Google Gemini 2.0 Flash |
+| 配置 | Skills YAML (供應商/輸出格式/合併規則) |
+| 儲存 | 記憶體快取 (1hr TTL) |
 
----
-Developed by yenhunghuang
+詳見 [架構文件](docs/architecture-flow.md)
+
+## 專案結構
+
+```
+backend/
+├── app/
+│   ├── api/routes/      # API 端點
+│   ├── services/        # 業務邏輯
+│   └── models/          # 資料模型
+skills/
+├── vendors/             # 供應商配置
+├── output-formats/      # 輸出格式
+└── core/                # 合併規則
+```
+
+## 文件
+
+- [CLAUDE.md](CLAUDE.md) - 開發指引
+- [架構流程](docs/architecture-flow.md)
+- [部署說明](docs/deployment.md)
+- [前端 API](docs/frontend-api.md)
