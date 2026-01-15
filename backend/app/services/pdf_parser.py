@@ -106,8 +106,8 @@ class PDFParserService:
         Find specification page content from PDF text.
 
         Searches for content containing "ITEM NO.:" which indicates a spec page,
-        rather than index/cover pages. Extracts content from the nearest page
-        boundary before ITEM NO.
+        rather than index/cover pages. Uses page separators to avoid picking up
+        PROJECT from index pages.
 
         Args:
             pdf_text: Full PDF text content
@@ -116,30 +116,35 @@ class PDFParserService:
         Returns:
             Specification page content containing PROJECT field
         """
-        # Look for specification page markers
         spec_markers = ["ITEM NO.:", "ITEM NO:", "Item No.:"]
+        page_separators = ["\f", "\n\n\n", "\r\n\r\n\r\n"]
 
         for marker in spec_markers:
             marker_pos = pdf_text.find(marker)
             if marker_pos != -1:
-                # Found spec page, look for page boundary before ITEM NO.
-                # Common page separators: multiple newlines, form feed, page markers
-                search_start = max(0, marker_pos - 1500)
+                # Search within 800 chars before ITEM NO. (reduced from 1500)
+                search_start = max(0, marker_pos - 800)
                 prefix_text = pdf_text[search_start:marker_pos]
 
-                # Find the start of the spec page (look for PROJECT: before ITEM NO.)
-                project_pos = prefix_text.rfind("PROJECT:")
+                # Find the nearest page separator to isolate spec page content
+                page_start = 0
+                for sep in page_separators:
+                    sep_pos = prefix_text.rfind(sep)
+                    if sep_pos != -1:
+                        page_start = max(page_start, sep_pos + len(sep))
+
+                # Search for PROJECT only within the same page block
+                page_content = prefix_text[page_start:]
+                project_pos = page_content.rfind("PROJECT:")
                 if project_pos == -1:
-                    project_pos = prefix_text.rfind("PROJECT :")
+                    project_pos = page_content.rfind("PROJECT :")
                 if project_pos == -1:
-                    project_pos = prefix_text.rfind("Project:")
+                    project_pos = page_content.rfind("Project:")
 
                 if project_pos != -1:
-                    # Found PROJECT, start from there
-                    start_pos = search_start + project_pos
+                    start_pos = search_start + page_start + project_pos
                 else:
-                    # No PROJECT found, use limited context before ITEM NO.
-                    start_pos = max(0, marker_pos - 500)
+                    start_pos = search_start + page_start
 
                 end_pos = min(len(pdf_text), marker_pos + 2000)
                 return pdf_text[start_pos:end_pos]

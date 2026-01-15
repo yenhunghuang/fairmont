@@ -2,6 +2,9 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
+
+from app.services.pdf_parser import PDFParserService
 
 
 pytestmark = pytest.mark.unit
@@ -67,3 +70,104 @@ class TestImageExtractorUnit:
     def test_extract_images_with_format_conversion(self, sample_pdf_file: Path):
         """Test image extraction with format conversion."""
         pytest.skip("Service implementation pending")
+
+
+class TestFindSpecificationPageContent:
+    """Tests for _find_specification_page_content method.
+
+    Ensures PROJECT is extracted from the specification page,
+    not from index/cover pages.
+    """
+
+    @pytest.fixture
+    def parser(self):
+        """Create a PDFParserService instance for testing."""
+        service = PDFParserService.__new__(PDFParserService)
+        service.client = None
+        service.model_name = "test-model"
+        service._prompts_loaded = False
+        service._skill = None
+        return service
+
+    def test_extracts_project_from_spec_page_with_form_feed_separator(self, parser):
+        """Test PROJECT is extracted from spec page when separated by form feed."""
+        pdf_text = (
+            "INDEX PAGE\n"
+            "PROJECT: WRONG_PROJECT_FROM_INDEX\n"
+            "Item # | Room | Quantity\n"
+            "DLX-100 | @Standard | 50\n"
+            "\f"  # Form feed (page separator)
+            "SPECIFICATION PAGE\n"
+            "PROJECT: CORRECT_PROJECT_NAME\n"
+            "ITEM NO.: DLX-100\n"
+            "Description: King Bed\n"
+        )
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert "CORRECT_PROJECT_NAME" in result
+        assert "WRONG_PROJECT_FROM_INDEX" not in result
+
+    def test_extracts_project_from_spec_page_with_newline_separator(self, parser):
+        """Test PROJECT is extracted from spec page when separated by triple newlines."""
+        pdf_text = (
+            "INDEX PAGE\n"
+            "PROJECT: WRONG_PROJECT_FROM_INDEX\n"
+            "Item # | Room | Quantity\n"
+            "\n\n\n"  # Triple newline (page separator)
+            "SPECIFICATION PAGE\n"
+            "PROJECT: CORRECT_PROJECT_NAME\n"
+            "ITEM NO.: DLX-100\n"
+            "Description: King Bed\n"
+        )
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert "CORRECT_PROJECT_NAME" in result
+        assert "WRONG_PROJECT_FROM_INDEX" not in result
+
+    def test_extracts_project_within_same_page_block(self, parser):
+        """Test PROJECT is correctly found within 800 chars before ITEM NO."""
+        pdf_text = (
+            "PROJECT: SOLAIRE BAY TOWER\n"
+            "AREA: Standard\n"
+            "ITEM NO.: DLX-100\n"
+            "Description: King Bed\n"
+        )
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert "SOLAIRE BAY TOWER" in result
+        assert "ITEM NO.: DLX-100" in result
+
+    def test_handles_missing_project_gracefully(self, parser):
+        """Test handles spec page without PROJECT field."""
+        pdf_text = (
+            "SPECIFICATION PAGE\n"
+            "ITEM NO.: DLX-100\n"
+            "Description: King Bed\n"
+        )
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert "ITEM NO.: DLX-100" in result
+
+    def test_handles_no_spec_markers(self, parser):
+        """Test fallback when no spec markers found."""
+        pdf_text = "Some random content without ITEM NO markers."
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert result == pdf_text
+
+    def test_supports_alternate_item_no_formats(self, parser):
+        """Test supports ITEM NO: (without dot) format."""
+        pdf_text = (
+            "PROJECT: TEST_PROJECT\n"
+            "ITEM NO: ABC-001\n"
+            "Description: Chair\n"
+        )
+
+        result = parser._find_specification_page_content(pdf_text)
+
+        assert "TEST_PROJECT" in result
