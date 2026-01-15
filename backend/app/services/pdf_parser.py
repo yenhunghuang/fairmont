@@ -147,9 +147,18 @@ class PDFParserService:
                     start_pos = search_start + page_start
 
                 end_pos = min(len(pdf_text), marker_pos + 2000)
-                return pdf_text[start_pos:end_pos]
+                result = pdf_text[start_pos:end_pos]
+                logger.debug(
+                    f"_find_specification_page_content: marker={marker}, "
+                    f"marker_pos={marker_pos}, page_start={page_start}, "
+                    f"project_pos={project_pos}, result_len={len(result)}"
+                )
+                # Log first 200 chars of result for debugging
+                logger.debug(f"Spec content preview: {result[:200]}...")
+                return result
 
         # Fallback: return first portion if no spec markers found
+        logger.debug("_find_specification_page_content: No spec markers found, using fallback")
         return pdf_text[:max_chars]
 
     def validate_pdf(self, file_path: str) -> tuple[int, bool]:
@@ -408,7 +417,10 @@ class PDFParserService:
 
             # 1. Extract project metadata first
             project_metadata = await self._extract_project_metadata(text_content, document_id)
-            logger.info(f"Extracted project metadata: {project_metadata}")
+            logger.info(
+                f"Extracted project metadata: {project_metadata}, "
+                f"project_name={project_metadata.get('project_name') if project_metadata else 'N/A'}"
+            )
 
             # 2. Prepare prompt for BOQ items
             prompt = self._create_boq_extraction_prompt(
