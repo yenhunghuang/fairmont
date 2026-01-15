@@ -234,9 +234,10 @@ class QuantityParserService:
                 logger.warning(f"Expected list, got {type(data)}")
                 return items
 
-            for entry in data:
+            for index, entry in enumerate(data):
                 try:
                     item_no = str(entry.get("item_no", "")).strip()
+                    description = entry.get("description")
                     qty = entry.get("qty")
                     page = entry.get("page")
 
@@ -249,9 +250,15 @@ class QuantityParserService:
                     elif qty is None:
                         continue
 
+                    # Parse description (ensure string or None)
+                    if description is not None:
+                        description = str(description).strip() or None
+
                     item = QuantitySummaryItem(
                         item_no_raw=item_no,
+                        description=description,
                         total_qty=float(qty),
+                        order_index=index,
                         source_document_id=document_id,
                         source_page=int(page) if page else None,
                     )

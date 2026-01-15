@@ -73,6 +73,11 @@ class BOQItem(BaseModel):
         None, description="附屬: 面料來源的家具編號 (如 DLX-100, DLX-101), 多個用 ', ' 分隔; 家具留空"
     )
 
+    # 數量總表排序追蹤 (2026-01-15 新增)
+    qty_order_index: Optional[int] = Field(
+        None, description="數量總表中的出現順序（用於排序）"
+    )
+
     # 時間戳記（內部使用）
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
