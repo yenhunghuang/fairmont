@@ -54,6 +54,28 @@ curl -X POST "http://localhost:8000/api/v1/process" \
 
 **Swagger UI**: http://localhost:8000/docs
 
+## 測試文件
+
+專案包含 Fairmont 測試用文件，位於 `docs/assets/fairmont-docs/`：
+
+| 檔案 | 說明 |
+|------|------|
+| `Overall_QTY.pdf` | 數量總表 - 包含所有項目編號與總數量 |
+| `Casegoods & Seatings.pdf` | 家具規格 - 木製家具與座椅詳細規格 |
+| `Fabric & Leather.pdf` | 面料規格 - 布料與皮革材質規格 |
+| `RFQ FORM-FTQ25106_報價Excel Form.xlsx` | 報價表範本 - 客戶期望的輸出格式 |
+
+### 使用測試文件
+
+```bash
+curl -X POST "http://localhost:8001/api/v1/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@docs/assets/fairmont-docs/Overall_QTY.pdf" \
+  -F "files=@docs/assets/fairmont-docs/Casegoods & Seatings.pdf" \
+  -F "files=@docs/assets/fairmont-docs/Fabric & Leather.pdf" \
+  --max-time 360
+```
+
 ## 技術架構
 
 | 元件 | 技術 |
