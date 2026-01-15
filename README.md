@@ -79,6 +79,86 @@ skills/
 └── core/                # 合併規則
 ```
 
+## 測試機部署
+
+### 部署腳本 (Windows PowerShell)
+
+使用 `deploy.ps1` 一鍵部署到測試機 `192.168.0.83`：
+
+```powershell
+# 在本機執行
+.\deploy.ps1
+```
+
+### 手動部署步驟
+
+**目標伺服器**: `ai-user@192.168.0.83`
+**遠端目錄**: `/home/ai-user/Fairmont`
+
+#### 1. 上傳檔案
+
+```bash
+scp -r backend skills docker-compose.yml .env.example ai-user@192.168.0.83:/home/ai-user/Fairmont/
+```
+
+#### 2. SSH 連線到伺服器
+
+```bash
+ssh ai-user@192.168.0.83
+```
+
+#### 3. 安裝 Docker (如尚未安裝)
+
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose
+sudo usermod -aG docker $USER
+# 重新登入以套用群組變更
+```
+
+#### 4. 設定環境變數
+
+```bash
+cd ~/Fairmont
+cp .env.example .env
+nano .env  # 填入 GEMINI_API_KEY 和 API_KEY
+```
+
+**.env 必填項目**:
+```env
+GEMINI_API_KEY=your_gemini_api_key
+API_KEY=your_api_key
+```
+
+#### 5. 啟動服務
+
+```bash
+docker-compose up -d --build
+```
+
+#### 6. 驗證
+
+```bash
+curl http://localhost:8001/api/v1/health
+```
+
+**Swagger UI**: http://192.168.0.83:8001/docs
+
+### 常用指令
+
+```bash
+# 查看日誌
+docker-compose logs -f backend
+
+# 重啟服務
+docker-compose restart
+
+# 停止服務
+docker-compose down
+
+# 重新部署
+docker-compose down && docker-compose up -d --build
+```
+
 ## 文件
 
 - [CLAUDE.md](CLAUDE.md) - 開發指引
