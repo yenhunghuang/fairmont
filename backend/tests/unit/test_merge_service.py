@@ -200,3 +200,205 @@ class TestGetFieldStrategy:
         result = service._get_field_strategy("unknown_field")
         assert result["mode"] == "fill_empty"
 
+
+class TestSortItemsByPriority:
+    """測試 _sort_items_by_priority 三層排序邏輯."""
+
+    @pytest.fixture
+    def service(self):
+        """建立 MergeService 實例."""
+        with patch("app.services.merge_service.get_item_normalizer_service") as mock_normalizer:
+            mock_normalizer.return_value.normalize = lambda x: x.upper().replace(" ", "")
+            with patch("app.services.merge_service.get_image_selector_service"):
+                service = MergeService()
+                service._rules_loaded = True
+                service._vendor_loaded = True
+                return service
+
+    def _create_item(
+        self,
+        item_no: str,
+        category: int = 1,
+        qty_order_index: int = None,
+    ) -> BOQItem:
+        """建立測試用 BOQItem."""
+        return BOQItem(
+            no=1,
+            item_no=item_no,
+            item_no_normalized=item_no.upper(),
+            description="Test Item",
+            category=category,
+            qty_order_index=qty_order_index,
+            source_document_id="test-doc",
+        )
+
+    def test_qty_furniture_sorted_by_order_index(self, service):
+        """測試數量總表家具按 order_index 排序."""
+        items = [
+            self._create_item("DLX-103", category=1, qty_order_index=2),
+            self._create_item("DLX-101", category=1, qty_order_index=0),
+            self._create_item("DLX-102", category=1, qty_order_index=1),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        assert [i.item_no for i in result] == ["DLX-101", "DLX-102", "DLX-103"]
+
+    def test_extra_furniture_sorted_by_item_no(self, service):
+        """測試額外家具按 item_no 字母順序排序."""
+        items = [
+            self._create_item("FUR-003", category=1, qty_order_index=None),
+            self._create_item("FUR-001", category=1, qty_order_index=None),
+            self._create_item("FUR-002", category=1, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        assert [i.item_no for i in result] == ["FUR-001", "FUR-002", "FUR-003"]
+
+    def test_fabric_sorted_by_item_no(self, service):
+        """測試面料按 item_no 字母順序排序."""
+        items = [
+            self._create_item("FAB-003", category=5, qty_order_index=None),
+            self._create_item("FAB-001", category=5, qty_order_index=None),
+            self._create_item("FAB-002", category=5, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        assert [i.item_no for i in result] == ["FAB-001", "FAB-002", "FAB-003"]
+
+    def test_three_tier_sorting(self, service):
+        """測試三層排序：額外家具按字母順序插入數量總表家具之間，面料放最後."""
+        items = [
+            # 面料
+            self._create_item("FAB-001", category=5, qty_order_index=None),
+            # 額外家具（不在數量總表）- 字母順序會在 DLX 之間
+            self._create_item("DLX-101.1", category=1, qty_order_index=None),
+            # 數量總表家具
+            self._create_item("DLX-102", category=1, qty_order_index=1),
+            self._create_item("DLX-100", category=1, qty_order_index=0),
+            # 更多面料
+            self._create_item("FAB-002", category=5, qty_order_index=None),
+            # 更多額外家具 - 字母順序在 DLX-100 和 DLX-102 之間
+            self._create_item("DLX-101", category=1, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        item_nos = [i.item_no for i in result]
+        # 額外家具按字母順序插入到數量總表家具之間
+        assert item_nos == [
+            "DLX-100",      # 數量總表（order_index=0）
+            "DLX-101",      # 額外家具（字母順序在 DLX-100 和 DLX-102 之間）
+            "DLX-101.1",    # 額外家具（DLX-101 的子項）
+            "DLX-102",      # 數量總表（order_index=1）
+            "FAB-001",      # 面料
+            "FAB-002",      # 面料
+        ]
+
+    def test_empty_list(self, service):
+        """測試空列表."""
+        result = service._sort_items_by_priority([])
+        assert result == []
+
+    def test_only_qty_furniture(self, service):
+        """測試只有數量總表家具的情況."""
+        items = [
+            self._create_item("A-002", category=1, qty_order_index=1),
+            self._create_item("A-001", category=1, qty_order_index=0),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        assert [i.item_no for i in result] == ["A-001", "A-002"]
+
+    def test_only_fabric(self, service):
+        """測試只有面料的情況."""
+        items = [
+            self._create_item("FAB-002", category=5),
+            self._create_item("FAB-001", category=5),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        assert [i.item_no for i in result] == ["FAB-001", "FAB-002"]
+
+    def test_extra_furniture_inserted_after_parent(self, service):
+        """測試額外家具插入到對應父項之後."""
+        items = [
+            self._create_item("DLX-101", category=1, qty_order_index=1),
+            self._create_item("DLX-100", category=1, qty_order_index=0),
+            self._create_item("DLX-100.2", category=1, qty_order_index=None),
+            self._create_item("DLX-100.1", category=1, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        item_nos = [i.item_no for i in result]
+        # DLX-100.1 和 DLX-100.2 應該緊跟在 DLX-100 之後
+        assert item_nos == ["DLX-100", "DLX-100.1", "DLX-100.2", "DLX-101"]
+
+    def test_extra_furniture_multiple_parents(self, service):
+        """測試額外家具分別跟隨各自的父項."""
+        items = [
+            # 數量總表家具
+            self._create_item("DLX-102", category=1, qty_order_index=2),
+            self._create_item("DLX-100", category=1, qty_order_index=0),
+            self._create_item("DLX-101", category=1, qty_order_index=1),
+            # 額外家具（子項）
+            self._create_item("DLX-100.1", category=1, qty_order_index=None),
+            self._create_item("DLX-101.1", category=1, qty_order_index=None),
+            self._create_item("DLX-100.2", category=1, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        item_nos = [i.item_no for i in result]
+        # 每個子項應該跟在其父項之後
+        assert item_nos == [
+            "DLX-100", "DLX-100.1", "DLX-100.2",  # DLX-100 與其子項
+            "DLX-101", "DLX-101.1",                # DLX-101 與其子項
+            "DLX-102",                             # DLX-102（無子項）
+        ]
+
+    def test_extra_furniture_without_parent(self, service):
+        """測試沒有對應父項的額外家具按字母順序插入."""
+        items = [
+            self._create_item("DLX-100", category=1, qty_order_index=0),
+            self._create_item("DLX-101", category=1, qty_order_index=1),
+            # 額外家具（沒有父項 ABC-100 在數量總表中）- 字母順序在 DLX 之前
+            self._create_item("ABC-100.1", category=1, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        item_nos = [i.item_no for i in result]
+        # ABC-100.1 字母順序在 DLX-100 之前，所以排在最前面
+        assert item_nos == ["ABC-100.1", "DLX-100", "DLX-101"]
+
+    def test_mixed_extra_with_and_without_parent(self, service):
+        """測試有父項和沒有父項的額外家具混合情況."""
+        items = [
+            # 數量總表家具
+            self._create_item("DLX-100", category=1, qty_order_index=0),
+            self._create_item("DLX-101", category=1, qty_order_index=1),
+            # 額外家具 - 有父項
+            self._create_item("DLX-100.1", category=1, qty_order_index=None),
+            # 額外家具 - 沒有父項，字母順序在 DLX 之前
+            self._create_item("ABC-001", category=1, qty_order_index=None),
+            # 面料
+            self._create_item("FAB-001", category=5, qty_order_index=None),
+        ]
+
+        result = service._sort_items_by_priority(items)
+
+        item_nos = [i.item_no for i in result]
+        # ABC-001 字母順序在 DLX-100 之前，所以排在最前面
+        assert item_nos == [
+            "ABC-001",              # 額外家具（字母順序在 DLX 之前）
+            "DLX-100", "DLX-100.1", # DLX-100 與其子項
+            "DLX-101",              # DLX-101
+            "FAB-001",              # 面料放最後
+        ]
+

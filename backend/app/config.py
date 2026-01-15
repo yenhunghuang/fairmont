@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Gemini API Configuration
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash-lite"
+    gemini_model: str = "gemini-3-flash-preview"
     gemini_timeout_seconds: int = 300  # API 呼叫超時（5 分鐘）
     gemini_max_retries: int = 2  # 失敗時重試次數
 

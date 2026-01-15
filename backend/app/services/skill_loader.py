@@ -99,6 +99,10 @@ class VendorInfo(BaseModel):
     name: str = Field(..., description="供應商名稱")
     identifier: str = Field(..., description="供應商識別碼")
     version: str = Field("1.0.0", description="配置版本")
+    requires: Optional[dict[str, str]] = Field(
+        default=None,
+        description="版本依賴聲明，如 {'merge_rules': '>=1.1.0', 'output_format': '>=1.0.0'}"
+    )
 
 
 # ============================================================
@@ -354,20 +358,32 @@ class ReportConfig(BaseModel):
 
 
 class FabricDetectionConfig(BaseModel):
-    """面料偵測配置（放在 VendorSkill 中，供應商特定）."""
+    """面料偵測配置.
+
+    歸屬說明：
+    - 此配置屬於「客戶輸出需求」而非「供應商 PDF 格式」
+    - 建議放在 core/merge-rules.yaml 中
+    - 為向後相容，也支援從 vendors/*.yaml 載入
+    """
 
     pattern: str = Field(
         r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)",
         description="從 description 提取目標家具 item_no 的正規表達式（支援含 . 的編號）"
     )
     description: str = Field("", description="說明")
+    belongs_to: Optional[str] = Field(
+        default=None,
+        description="歸屬標記：'output_format' 表示客戶輸出需求，'vendor' 表示供應商特定"
+    )
 
 
 class MergeRulesSkill(BaseModel):
     """合併規則 Skill 完整配置.
 
-    注意：排序邏輯（fabric_follows_furniture）硬編碼於 merge_service.py
-    面料偵測 Pattern 配置於 VendorSkill.fabric_detection
+    注意：
+    - 排序邏輯（fabric_follows_furniture）硬編碼於 merge_service.py
+    - fabric_detection 建議放在此處（客戶輸出需求）
+    - 為向後相容，也支援從 VendorSkill 載入
     """
 
     rules: RulesInfo
@@ -377,6 +393,10 @@ class MergeRulesSkill(BaseModel):
     item_no_normalization: ItemNoNormalizationConfig = Field(default_factory=ItemNoNormalizationConfig)
     constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
     report: ReportConfig = Field(default_factory=ReportConfig)
+    fabric_detection: Optional[FabricDetectionConfig] = Field(
+        default=None,
+        description="面料偵測配置（建議放在此處，屬於客戶輸出需求）"
+    )
 
     @property
     def version(self) -> str:
@@ -472,6 +492,10 @@ class SkillLoaderService:
     def load_vendor(self, vendor_id: str) -> VendorSkill:
         """載入供應商配置.
 
+        支援兩種載入方式：
+        1. 目錄式：vendors/{vendor_id}/ 目錄下的多個 YAML 檔案
+        2. 單檔式：vendors/{vendor_id}.yaml 單一檔案（向後相容）
+
         Args:
             vendor_id: 供應商識別碼（如 "habitus"）
 
@@ -487,7 +511,25 @@ class SkillLoaderService:
             logger.debug(f"從快取載入供應商配置: {vendor_id}")
             return self._vendor_cache[vendor_id]
 
-        # 載入 YAML 檔案
+        # 優先嘗試目錄式載入
+        vendor_dir = self.skills_dir / "vendors" / vendor_id
+        if vendor_dir.is_dir():
+            skill = self._load_vendor_from_directory(vendor_dir, vendor_id)
+        else:
+            # 向後相容：單檔載入
+            skill = self._load_vendor_from_file(vendor_id)
+
+        # 存入快取
+        if self.cache_enabled:
+            self._vendor_cache[vendor_id] = skill
+            logger.info(f"載入並快取供應商配置: {vendor_id}")
+        else:
+            logger.info(f"載入供應商配置（無快取）: {vendor_id}")
+
+        return skill
+
+    def _load_vendor_from_file(self, vendor_id: str) -> VendorSkill:
+        """從單一 YAML 檔案載入供應商配置（向後相容）."""
         path = self.skills_dir / "vendors" / f"{vendor_id}.yaml"
         if not path.exists():
             raise SkillNotFoundError(f"找不到供應商配置檔: {path}")
@@ -498,20 +540,390 @@ class SkillLoaderService:
         except yaml.YAMLError as e:
             raise SkillParseError(f"YAML 解析失敗: {e}")
 
-        # 解析為 Pydantic 模型
         try:
-            skill = VendorSkill(**data)
+            return VendorSkill(**data)
         except Exception as e:
             raise SkillParseError(f"配置驗證失敗: {e}")
 
-        # 存入快取
-        if self.cache_enabled:
-            self._vendor_cache[vendor_id] = skill
-            logger.info(f"載入並快取供應商配置: {vendor_id}")
-        else:
-            logger.info(f"載入供應商配置（無快取）: {vendor_id}")
+    def _load_vendor_from_directory(self, vendor_dir: Path, vendor_id: str) -> VendorSkill:
+        """從目錄載入供應商配置（漸進式揭露設計）.
 
-        return skill
+        目錄結構：
+            vendors/{vendor_id}/
+            ├── _vendor.yaml           # 基本識別（必要）
+            ├── document-types.yaml    # 文件類型定義（選用）
+            ├── page-structure.yaml    # 頁面結構（選用）
+            ├── image-extraction.yaml  # 圖片規則（選用）
+            ├── field-extraction.yaml  # 欄位提取（選用）
+            ├── dimension-rules.yaml   # Dimension 格式化（選用）
+            ├── fabric-detection.yaml  # 面料偵測（選用）
+            └── prompts/
+                ├── parse-specification.yaml
+                ├── parse-quantity-summary.yaml
+                └── parse-project-metadata.yaml
+        """
+        data: dict[str, Any] = {}
+
+        # 1. 載入必要的 _vendor.yaml
+        vendor_file = vendor_dir / "_vendor.yaml"
+        if not vendor_file.exists():
+            raise SkillNotFoundError(f"找不到供應商識別檔: {vendor_file}")
+
+        try:
+            with open(vendor_file, "r", encoding="utf-8") as f:
+                vendor_data = yaml.safe_load(f) or {}
+            data.update(vendor_data)
+        except yaml.YAMLError as e:
+            raise SkillParseError(f"YAML 解析失敗 (_vendor.yaml): {e}")
+
+        # 2. 載入選用的配置檔案
+        optional_files = [
+            ("document-types.yaml", "document_types"),
+            ("document-structure.yaml", "document_structure"),
+            ("image-extraction.yaml", "image_extraction"),
+            ("field-extraction.yaml", "field_extraction"),
+            ("dimension-rules.yaml", "dimension_formatting"),
+            ("fabric-detection.yaml", "fabric_detection"),
+        ]
+
+        for filename, key in optional_files:
+            file_path = vendor_dir / filename
+            if file_path.exists():
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        file_data = yaml.safe_load(f) or {}
+                    # 支援直接使用 key 或巢狀結構
+                    if key in file_data:
+                        data[key] = file_data[key]
+                    else:
+                        data[key] = file_data
+                except yaml.YAMLError as e:
+                    raise SkillParseError(f"YAML 解析失敗 ({filename}): {e}")
+
+        # 3. 載入 prompts 目錄
+        prompts_dir = vendor_dir / "prompts"
+        if prompts_dir.is_dir():
+            prompts_data: dict[str, Any] = {}
+            prompt_files = [
+                ("parse-specification.yaml", "parse_specification"),
+                ("parse-quantity-summary.yaml", "parse_quantity_summary"),
+                ("parse-project-metadata.yaml", "parse_project_metadata"),
+                ("classify-image.yaml", "classify_image"),
+            ]
+
+            for filename, key in prompt_files:
+                file_path = prompts_dir / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            prompt_data = yaml.safe_load(f) or {}
+
+                        # 支援外部模板檔案：user_template_file
+                        prompt_data = self._resolve_external_template(prompt_data, prompts_dir)
+                        prompts_data[key] = prompt_data
+                    except yaml.YAMLError as e:
+                        raise SkillParseError(f"YAML 解析失敗 (prompts/{filename}): {e}")
+
+            if prompts_data:
+                data["prompts"] = prompts_data
+
+        # 解析為 Pydantic 模型
+        try:
+            return VendorSkill(**data)
+        except Exception as e:
+            raise SkillParseError(f"配置驗證失敗: {e}")
+
+    def validate_dependencies(self, vendor_skill: VendorSkill) -> tuple[bool, list[str]]:
+        """驗證供應商配置的版本依賴.
+
+        Args:
+            vendor_skill: 供應商配置
+
+        Returns:
+            (is_valid, errors) 元組，is_valid 為 True 表示所有依賴滿足
+        """
+        if vendor_skill.vendor.requires is None:
+            return True, []
+
+        errors: list[str] = []
+
+        for dep_type, required_version in vendor_skill.vendor.requires.items():
+            actual_version: Optional[str] = None
+
+            if dep_type == "merge_rules":
+                try:
+                    merge_rules = self.load_merge_rules("merge-rules")
+                    actual_version = merge_rules.version
+                except (SkillNotFoundError, SkillParseError):
+                    errors.append(f"無法載入 merge_rules 配置")
+                    continue
+            elif dep_type == "output_format":
+                try:
+                    output_format = self.load_output_format("fairmont")
+                    actual_version = output_format.version
+                except (SkillNotFoundError, SkillParseError):
+                    errors.append(f"無法載入 output_format 配置")
+                    continue
+
+            if actual_version:
+                if not self._version_satisfies(actual_version, required_version):
+                    errors.append(
+                        f"{dep_type} 版本不相容: 需要 {required_version}, 實際為 {actual_version}"
+                    )
+
+        return len(errors) == 0, errors
+
+    def get_disclosure_levels(self, vendor_id: str) -> dict[str, Optional[int]]:
+        """取得供應商配置的揭露層級標記.
+
+        揭露層級說明：
+        - L1 (1): 識別層 - 快速識別用（name, identifier, version）
+        - L2 (2): 結構層 - 初始化時載入（document_types, columns）
+        - L3 (3): 規則層 - 特定場景按需載入（field_extraction, exclusions）
+        - L4 (4): 執行層 - LLM 呼叫時才載入（prompts）
+
+        Args:
+            vendor_id: 供應商識別碼
+
+        Returns:
+            各區塊的揭露層級 dict，如 {"vendor": 1, "prompts.parse_specification": 4}
+        """
+        levels: dict[str, Optional[int]] = {}
+        vendor_dir = self.skills_dir / "vendors" / vendor_id
+
+        if not vendor_dir.is_dir():
+            # 單檔模式：從單一 YAML 載入
+            single_file = self.skills_dir / "vendors" / f"{vendor_id}.yaml"
+            if single_file.exists():
+                try:
+                    with open(single_file, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    self._extract_disclosure_levels(data, "", levels)
+                except yaml.YAMLError:
+                    pass
+            return levels
+
+        # 目錄模式
+        # 1. _vendor.yaml
+        vendor_file = vendor_dir / "_vendor.yaml"
+        if vendor_file.exists():
+            try:
+                with open(vendor_file, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if "vendor" in data and isinstance(data["vendor"], dict):
+                    level = data["vendor"].get("_disclosure_level")
+                    if level is not None:
+                        levels["vendor"] = level
+            except yaml.YAMLError:
+                pass
+
+        # 2. 其他配置檔案
+        config_files = [
+            ("document-types.yaml", "document_types"),
+            ("image-extraction.yaml", "image_extraction"),
+            ("field-extraction.yaml", "field_extraction"),
+            ("dimension-rules.yaml", "dimension_formatting"),
+            ("fabric-detection.yaml", "fabric_detection"),
+        ]
+
+        for filename, key in config_files:
+            file_path = vendor_dir / filename
+            if file_path.exists():
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    level = data.get("_disclosure_level")
+                    if level is not None:
+                        levels[key] = level
+                except yaml.YAMLError:
+                    pass
+
+        # 3. prompts 目錄
+        prompts_dir = vendor_dir / "prompts"
+        if prompts_dir.is_dir():
+            prompt_files = [
+                ("parse-specification.yaml", "prompts.parse_specification"),
+                ("parse-quantity-summary.yaml", "prompts.parse_quantity_summary"),
+                ("parse-project-metadata.yaml", "prompts.parse_project_metadata"),
+            ]
+            for filename, key in prompt_files:
+                file_path = prompts_dir / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            data = yaml.safe_load(f) or {}
+                        level = data.get("_disclosure_level")
+                        if level is not None:
+                            levels[key] = level
+                    except yaml.YAMLError:
+                        pass
+
+        return levels
+
+    def _extract_disclosure_levels(
+        self, data: dict[str, Any], prefix: str, levels: dict[str, Optional[int]]
+    ) -> None:
+        """遞迴提取揭露層級標記（用於單檔模式）."""
+        for key, value in data.items():
+            if key == "_disclosure_level" and isinstance(value, int):
+                # 將此層級記錄到父節點
+                parent_key = prefix.rstrip(".")
+                if parent_key:
+                    levels[parent_key] = value
+            elif isinstance(value, dict):
+                new_prefix = f"{prefix}{key}." if prefix else f"{key}."
+                # 檢查這個 dict 是否有 _disclosure_level
+                if "_disclosure_level" in value:
+                    key_path = f"{prefix}{key}" if prefix else key
+                    levels[key_path] = value["_disclosure_level"]
+                self._extract_disclosure_levels(value, new_prefix, levels)
+
+    def validate_against_schema(self, skill_id: str, skill_type: str) -> tuple[bool, list[str]]:
+        """使用 JSON Schema 驗證配置.
+
+        Args:
+            skill_id: Skill 識別碼（如 "habitus", "fairmont"）
+            skill_type: Skill 類型（"vendor", "output_format", "merge_rules"）
+
+        Returns:
+            (is_valid, errors) 元組
+        """
+        import json
+
+        # 決定 schema 和配置檔案路徑
+        schema_path = self.skills_dir / "schemas" / f"{skill_type}.schema.json"
+        if not schema_path.exists():
+            logger.warning(f"Schema 檔案不存在，跳過驗證: {schema_path}")
+            return True, []
+
+        # 決定配置檔案路徑
+        if skill_type == "vendor":
+            config_path = self.skills_dir / "vendors" / f"{skill_id}.yaml"
+        elif skill_type == "output_format":
+            config_path = self.skills_dir / "output-formats" / f"{skill_id}.yaml"
+        elif skill_type == "merge_rules":
+            config_path = self.skills_dir / "core" / f"{skill_id}.yaml"
+        else:
+            return False, [f"不支援的 skill_type: {skill_type}"]
+
+        if not config_path.exists():
+            return False, [f"配置檔案不存在: {config_path}"]
+
+        # 載入 schema
+        try:
+            with open(schema_path, "r", encoding="utf-8") as f:
+                schema = json.load(f)
+        except json.JSONDecodeError as e:
+            return False, [f"Schema 解析失敗: {e}"]
+
+        # 載入配置
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            return False, [f"配置解析失敗: {e}"]
+
+        # 使用 jsonschema 驗證
+        try:
+            import jsonschema
+            jsonschema.validate(instance=config, schema=schema)
+            return True, []
+        except jsonschema.ValidationError as e:
+            return False, [str(e.message)]
+        except jsonschema.SchemaError as e:
+            return False, [f"Schema 無效: {e.message}"]
+        except ImportError:
+            logger.warning("jsonschema 套件未安裝，跳過 Schema 驗證")
+            return True, []
+
+    def _version_satisfies(self, actual: str, required: str) -> bool:
+        """檢查實際版本是否滿足要求.
+
+        支援的運算符：>=, >, <=, <, ==, =
+
+        Args:
+            actual: 實際版本（如 "1.1.0"）
+            required: 要求版本（如 ">=1.1.0"）
+
+        Returns:
+            True 如果滿足要求
+        """
+        import re
+
+        # 解析運算符和版本
+        match = re.match(r'^(>=|>|<=|<|==|=)?(\d+\.\d+\.\d+)$', required)
+        if not match:
+            logger.warning(f"無效的版本要求格式: {required}")
+            return True  # 無效格式時通過
+
+        operator = match.group(1) or "=="
+        required_version = match.group(2)
+
+        # 解析版本為元組以進行比較
+        def parse_version(v: str) -> tuple[int, int, int]:
+            parts = v.split(".")
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+        try:
+            actual_tuple = parse_version(actual)
+            required_tuple = parse_version(required_version)
+        except (ValueError, IndexError):
+            return True  # 無效版本格式時通過
+
+        if operator in (">=",):
+            return actual_tuple >= required_tuple
+        elif operator in (">",):
+            return actual_tuple > required_tuple
+        elif operator in ("<=",):
+            return actual_tuple <= required_tuple
+        elif operator in ("<",):
+            return actual_tuple < required_tuple
+        else:  # == or =
+            return actual_tuple == required_tuple
+
+    def _resolve_external_template(self, prompt_data: dict[str, Any], prompts_dir: Path) -> dict[str, Any]:
+        """解析外部 Prompt 模板檔案.
+
+        支援 user_template_file 和 system_file 欄位，
+        從指定的外部檔案載入模板內容。
+
+        Args:
+            prompt_data: 原始 prompt 配置 dict
+            prompts_dir: prompts 目錄路徑
+
+        Returns:
+            處理後的 prompt 配置 dict，外部模板已載入為字串
+        """
+        result = prompt_data.copy()
+
+        # 處理 user_template_file
+        if "user_template_file" in result:
+            template_path = prompts_dir / result["user_template_file"]
+            if template_path.exists():
+                try:
+                    with open(template_path, "r", encoding="utf-8") as f:
+                        result["user_template"] = f.read()
+                except IOError as e:
+                    raise SkillParseError(f"無法讀取外部模板檔案: {template_path}: {e}")
+            else:
+                raise SkillParseError(f"找不到外部模板檔案: {template_path}")
+            # 移除 user_template_file 欄位
+            del result["user_template_file"]
+
+        # 處理 system_file（可選）
+        if "system_file" in result:
+            system_path = prompts_dir / result["system_file"]
+            if system_path.exists():
+                try:
+                    with open(system_path, "r", encoding="utf-8") as f:
+                        result["system"] = f.read()
+                except IOError as e:
+                    raise SkillParseError(f"無法讀取外部 system 檔案: {system_path}: {e}")
+            else:
+                raise SkillParseError(f"找不到外部 system 檔案: {system_path}")
+            del result["system_file"]
+
+        return result
 
     def load_output_format(self, format_id: str) -> OutputFormatSkill:
         """載入輸出格式配置.
@@ -649,13 +1061,29 @@ class SkillLoaderService:
     def list_vendors(self) -> list[str]:
         """列出所有可用的供應商.
 
+        支援目錄式和單檔式供應商配置。
+
         Returns:
             供應商識別碼列表
         """
         vendor_dir = self.skills_dir / "vendors"
         if not vendor_dir.exists():
             return []
-        return [p.stem for p in vendor_dir.glob("*.yaml") if not p.stem.startswith("_")]
+
+        vendors: set[str] = set()
+
+        # 1. 單檔式供應商（*.yaml）
+        for p in vendor_dir.glob("*.yaml"):
+            if not p.stem.startswith("_"):
+                vendors.add(p.stem)
+
+        # 2. 目錄式供應商（含 _vendor.yaml 的目錄）
+        for d in vendor_dir.iterdir():
+            if d.is_dir() and not d.name.startswith("_"):
+                if (d / "_vendor.yaml").exists():
+                    vendors.add(d.name)
+
+        return sorted(vendors)
 
     def clear_cache(self) -> None:
         """清除所有快取."""
@@ -714,6 +1142,39 @@ class SkillLoaderService:
         if skill is None:
             return None
         return getattr(skill.prompts, prompt_type, None)
+
+    def get_fabric_detection(
+        self,
+        vendor_id: str = "habitus",
+        merge_rules_id: str = "merge-rules"
+    ) -> Optional[FabricDetectionConfig]:
+        """取得面料偵測配置（便捷方法）.
+
+        優先順序：
+        1. core/merge-rules.yaml 的 fabric_detection（建議位置）
+        2. vendors/{vendor_id}.yaml 的 fabric_detection（向後相容）
+
+        Args:
+            vendor_id: 供應商識別碼（用於向後相容）
+            merge_rules_id: 合併規則識別碼
+
+        Returns:
+            FabricDetectionConfig 或 None
+        """
+        # 1. 優先從 merge-rules 載入
+        try:
+            merge_rules = self.load_merge_rules(merge_rules_id)
+            if merge_rules.fabric_detection is not None:
+                return merge_rules.fabric_detection
+        except (SkillNotFoundError, SkillParseError):
+            pass
+
+        # 2. 向後相容：從 vendor 載入
+        vendor_skill = self.load_vendor_or_default(vendor_id)
+        if vendor_skill is not None:
+            return vendor_skill.fabric_detection
+
+        return None
 
 
 # ============================================================

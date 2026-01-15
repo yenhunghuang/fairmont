@@ -1,0 +1,58 @@
+# 圖片抓取規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
+
+image_extraction:
+  _disclosure_level: 3
+  # 頁面偏移配置（圖片在規格頁後幾頁）
+  page_offset:
+    default: 1
+    by_document_type:
+      furniture_specification: 1   # 家具明細：規格頁 +1 頁有產品圖
+      fabric_specification: 1      # 面料明細：規格頁 +1 頁有產品圖
+      quantity_summary: 0          # 數量總表：無圖片匹配
+
+  # 產品圖選擇策略
+  product_image:
+    source_page: "attachment_page"
+    selection_strategy: "largest_color_image"
+    min_area_ratio: 0.1  # 至少佔頁面 10%
+    min_area_px: 10000   # 最小面積（像素）
+
+    characteristics:
+      - "彩色照片或渲染圖"
+      - "通常位於頁面上半部"
+      - "顯示完整家具產品"
+
+  # 排除規則
+  exclusions:
+    - type: "logo"
+      description: "公司 Logo"
+      rules:
+        position: "top_10_percent"
+        contains_text: "HABITUS"
+        max_area_px: 5000
+        max_area_ratio: 0.05
+
+    - type: "material_swatch"
+      description: "材質色票"
+      rules:
+        max_width_px: 300
+        max_height_px: 300
+        has_label_below: true
+        label_pattern: "^[A-Z]{2,4}-\\d{1,4}(\\.\\d+)?$"  # DLX-500, WD-003, DLX-100.1
+
+    - type: "technical_drawing"
+      description: "工程圖/線稿"
+      rules:
+        saturation_below: 0.1  # 黑白或低飽和度
+        contains_text_any:
+          - "VIEW"
+          - "SCALE"
+          - "mm"
+
+    - type: "hardware_detail"
+      description: "五金配件圖"
+      rules:
+        max_area_ratio: 0.05
+        background: "white"
+        has_label_below: true

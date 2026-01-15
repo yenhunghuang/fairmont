@@ -54,6 +54,28 @@ curl -X POST "http://localhost:8000/api/v1/process" \
 
 **Swagger UI**: http://localhost:8000/docs
 
+## 測試文件
+
+專案包含 Fairmont 測試用文件，位於 `docs/assets/fairmont-docs/`：
+
+| 檔案 | 說明 |
+|------|------|
+| `Overall_QTY.pdf` | 數量總表 - 包含所有項目編號與總數量 |
+| `Casegoods & Seatings.pdf` | 家具規格 - 木製家具與座椅詳細規格 |
+| `Fabric & Leather.pdf` | 面料規格 - 布料與皮革材質規格 |
+| `RFQ FORM-FTQ25106_報價Excel Form.xlsx` | 報價表範本 - 客戶期望的輸出格式 |
+
+### 使用測試文件
+
+```bash
+curl -X POST "http://localhost:8001/api/v1/process" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files=@docs/assets/fairmont-docs/Overall_QTY.pdf" \
+  -F "files=@docs/assets/fairmont-docs/Casegoods & Seatings.pdf" \
+  -F "files=@docs/assets/fairmont-docs/Fabric & Leather.pdf" \
+  --max-time 360
+```
+
 ## 技術架構
 
 | 元件 | 技術 |
@@ -77,6 +99,86 @@ skills/
 ├── vendors/             # 供應商配置
 ├── output-formats/      # 輸出格式
 └── core/                # 合併規則
+```
+
+## 測試機部署
+
+### 部署腳本 (Windows PowerShell)
+
+使用 `deploy.ps1` 一鍵部署到測試機 `192.168.0.83`：
+
+```powershell
+# 在本機執行
+.\deploy.ps1
+```
+
+### 手動部署步驟
+
+**目標伺服器**: `ai-user@192.168.0.83`
+**遠端目錄**: `/home/ai-user/Fairmont`
+
+#### 1. 上傳檔案
+
+```bash
+scp -r backend skills docker-compose.yml .env.example ai-user@192.168.0.83:/home/ai-user/Fairmont/
+```
+
+#### 2. SSH 連線到伺服器
+
+```bash
+ssh ai-user@192.168.0.83
+```
+
+#### 3. 安裝 Docker (如尚未安裝)
+
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose
+sudo usermod -aG docker $USER
+# 重新登入以套用群組變更
+```
+
+#### 4. 設定環境變數
+
+```bash
+cd ~/Fairmont
+cp .env.example .env
+nano .env  # 填入 GEMINI_API_KEY 和 API_KEY
+```
+
+**.env 必填項目**:
+```env
+GEMINI_API_KEY=your_gemini_api_key
+API_KEY=your_api_key
+```
+
+#### 5. 啟動服務
+
+```bash
+docker-compose up -d --build
+```
+
+#### 6. 驗證
+
+```bash
+curl http://localhost:8001/api/v1/health
+```
+
+**Swagger UI**: http://192.168.0.83:8001/docs
+
+### 常用指令
+
+```bash
+# 查看日誌
+docker-compose logs -f backend
+
+# 重啟服務
+docker-compose restart
+
+# 停止服務
+docker-compose down
+
+# 重新部署
+docker-compose down && docker-compose up -d --build
 ```
 
 ## 文件

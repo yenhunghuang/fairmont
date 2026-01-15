@@ -1,0 +1,76 @@
+# 欄位提取規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
+
+field_extraction:
+  _disclosure_level: 3
+  item_no:
+    location: "specification_page"
+    pattern: "ITEM NO\\.?:\\s*([A-Z0-9\\-\\.]+)"
+    normalization:
+      - uppercase: true
+      - remove_spaces: true
+      - standardize_separators: "-"
+
+  item_name:
+    location: "specification_page"
+    pattern: "ITEM:\\s*(.+?)(?=\\n|LOCATION)"
+
+  description:
+    location: "specification_page"
+    section: "DESCRIPTION"
+    extract_until: "NOTES:"
+
+  dimension:
+    location: "specification_page"
+    patterns:
+      - "Overall Dimensions?:\\s*(.+?)(?=\\n)"
+      - "([LWDH]\\d+\\s*x\\s*[LWDH]?\\d+\\s*x\\s*[LWDH]?\\d+)"
+    format_furniture: "WxDxH mm"  # 家具：W800 x D600 x H450
+    format_fabric: "<材料類型>-<Vendor>-<Pattern>-<Color>-<Width> <plain/pattern>"  # 面料規格
+
+  location_field:
+    # 根據文件類型有不同的提取方式
+    furniture_extraction:
+      source: "index_page"
+      description: "從 Index 區塊的 @房型 列表合併"
+      extraction_rules:
+        - find_item_no_in_index: true
+        - collect_all_room_types: "以 @ 開頭的列"
+        - merge_similar_rooms: true  # Type A + Type B → (A/B)
+      abbreviation_rules:
+        - from: "King Deluxe Room Type A/B"
+          to: "King DLX (A/B)"
+        - from: "End King Deluxe Room"
+          to: "End King"
+        - from: "Grand King Deluxe Room Type A/B"
+          to: "Grand King (A/B)"
+        - from: "Double Deluxe Room Type A/B/C/D"
+          to: "Double DLX (A/B/C/D)"
+        - from: "Corner Grand King Room"
+          to: "Corner Grand King"
+
+    fabric_extraction:
+      source: "specification_page.ITEM"
+      description: "從 ITEM 欄位的 @ 後面提取應用的家具編號清單"
+      pattern: "ITEM:\\s*(?:Fabric|Leather|Vinyl)?\\s*@\\s*(.+?)(?=\\n|$)"
+      parsing_rules:
+        - step: "找到 @ 符號後的文字"
+        - step: "將 'and' 替換為 ','"
+        - step: "確保每個家具編號都有對應名稱"
+      examples:
+        - input: "ITEM: Fabric @ DLX-100 King Sized Bed and DLX-103 Queen Sized Bed"
+          output: "DLX-100 King Sized Bed, DLX-103 Queen Sized Bed"
+          explanation: "兩個獨立的家具項目，用逗號分隔"
+        - input: "ITEM: Fabric @ DLX-100.1 Budoir Pillow and DLX-103.1 Budoir Pillow"
+          output: "DLX-100.1 Budoir Pillow, DLX-103.1 Budoir Pillow"
+          explanation: "兩個獨立的枕頭項目"
+        - input: "ITEM: Fabric @ DLX-100.2 and DLX-103.2 Bed Runner/ Throw (Main Fabric)"
+          output: "DLX-100.2 Bed Runner, DLX-103.2 Bed Runner"
+          explanation: "共用名稱的兩個項目，每個都需要完整名稱"
+
+  # materials 欄位提取規則已整合至 prompts.parse_specification.user_template
+  # 參見 materials_specs 詳細規則區塊
+  materials:
+    _note: "此區塊保留供程式參考，實際解析規則請見 prompt 模板"
+    location: "specification_page"
+    section: "DESCRIPTION"

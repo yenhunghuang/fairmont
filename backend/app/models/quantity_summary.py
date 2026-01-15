@@ -17,9 +17,15 @@ class QuantitySummaryItem(BaseModel):
         default="", description="標準化後的 Item No."
     )
 
+    # 描述資訊
+    description: Optional[str] = Field(None, description="項目描述")
+
     # 數量資訊
     total_qty: float = Field(..., ge=0, description="總數量")
     uom: Optional[str] = Field(None, description="單位")
+
+    # 排序追蹤
+    order_index: int = Field(0, description="在數量總表中的出現順序（0-based）")
 
     # 來源追蹤
     source_document_id: str = Field(..., description="來源文件 ID")
@@ -92,8 +98,10 @@ class QuantitySummaryItem(BaseModel):
             "example": {
                 "item_no_raw": "DLX-100",
                 "item_no_normalized": "DLX-100",
+                "description": "King Bed",
                 "total_qty": 239.0,
                 "uom": "ea",
+                "order_index": 0,
                 "source_document_id": "doc-123",
                 "source_page": 1,
             }

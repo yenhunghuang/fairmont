@@ -69,7 +69,7 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 **必填**：`GEMINI_API_KEY`, `API_KEY`
 
 **選用**（含預設值）：
-- `GEMINI_MODEL=gemini-2.0-flash-lite`, `GEMINI_TIMEOUT_SECONDS=300`, `GEMINI_MAX_RETRIES=2`
+- `GEMINI_MODEL=gemini-3-flash-preview`, `GEMINI_TIMEOUT_SECONDS=300`, `GEMINI_MAX_RETRIES=2`
 - `SKILLS_CACHE_ENABLED=true`（開發時設 `false` 以即時載入 YAML 變更）
 - `BACKEND_DEBUG=false`（設 `true` 啟用詳細日誌）
 - `MAX_FILE_SIZE_MB=50`, `MAX_FILES=5`
@@ -122,20 +122,64 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 | 變動來源 | 頻率 | 配置策略 |
 |---------|------|---------|
 | 客戶輸出格式（惠而蒙 Excel） | 低 | 硬編碼或 `output-formats/` |
-| 供應商 PDF 格式（Habitus 等） | 高 | `vendors/*.yaml` |
+| 供應商 PDF 格式（Habitus 等） | 高 | `vendors/{id}/` 目錄或 `vendors/{id}.yaml` |
 | 排序演算法、Item No. 正規化 | 低 | 硬編碼（`merge_service.py`） |
-| 面料偵測 Pattern、圖片規則 | 高 | `vendors/*.yaml` |
+| 面料偵測 Pattern、圖片規則 | 高 | `vendors/{id}/` 目錄配置 |
 
 ### Skills 目錄結構
 
 ```
 skills/
-├── vendors/habitus.yaml        # 供應商配置（Prompt、圖片規則、面料偵測）
-├── output-formats/fairmont.yaml # 輸出格式（15 欄定義、樣式、條款）
-└── core/merge-rules.yaml       # 合併規則（角色偵測、欄位合併策略）
+├── vendors/
+│   └── habitus/                    # 供應商配置（目錄結構）
+│       ├── _vendor.yaml            # 供應商基本資訊（必要）
+│       ├── document-types.yaml     # 文件類型定義
+│       ├── document-structure.yaml # 頁面結構
+│       ├── image-extraction.yaml   # 圖片抓取規則
+│       ├── dimension-rules.yaml    # Dimension 格式化
+│       ├── fabric-detection.yaml   # 面料偵測規則
+│       ├── field-extraction.yaml   # 欄位提取規則
+│       └── prompts/                # Prompt 模板
+│           ├── parse-specification.yaml
+│           ├── parse-quantity-summary.yaml
+│           └── parse-project-metadata.yaml
+├── output-formats/fairmont.yaml    # 輸出格式（15 欄定義、樣式、條款）
+└── core/merge-rules.yaml           # 合併規則（角色偵測、欄位合併策略）
 ```
 
+**載入優先順序**：目錄結構 > 單檔（`{vendor_id}.yaml`）
+
 **POC 階段固定使用**：`vendor_id="habitus"`, `format_id="fairmont"`
+
+### JSON Schema 驗證
+
+配置檔案可透過 JSON Schema 驗證，位於 `skills/schemas/`：
+
+| Schema | 用途 |
+|--------|------|
+| `vendor.schema.json` | 供應商配置驗證（文件類型、Prompt、圖片規則）|
+| `merge-rules.schema.json` | 合併規則驗證（角色偵測、欄位策略）|
+| `output-format.schema.json` | 輸出格式驗證（欄位定義、樣式）|
+
+### 漸進式揭露層級
+
+各配置區塊標記 `_disclosure_level`，定義載入時機：
+
+| Level | 名稱 | 載入時機 | 範例區塊 |
+|-------|------|----------|----------|
+| L1 | 識別層 | 立即載入 | `vendor` (name, version, requires) |
+| L2 | 結構層 | 初始化時 | `document_types`, `document_structure` |
+| L3 | 規則層 | 按需載入 | `image_extraction`, `dimension_formatting`, `fabric_detection` |
+| L4 | 執行層 | LLM 呼叫時 | `prompts/*` |
+
+**版本依賴聲明**（`_vendor.yaml`）：
+```yaml
+vendor:
+  version: "1.2.0"
+  requires:
+    merge_rules: ">=1.1.0"
+    output_format: ">=1.0.0"
+```
 
 ### 服務與 Skill 對應
 
@@ -149,7 +193,7 @@ skills/
 | `image_matcher_deterministic.py` | VendorSkill | 圖片排除規則、頁面偏移 |
 | `dimension_formatter.py` | VendorSkill | Dimension 格式化關鍵字 |
 
-### 欄位格式規範（habitus.yaml）
+### 欄位格式規範（habitus/prompts/parse-specification.yaml）
 
 | 欄位 | 家具 (furniture) | 面料 (fabric) |
 |------|-----------------|--------------|
@@ -190,7 +234,7 @@ skills/
 - **效能**: < 100ms/PDF
 
 ```yaml
-# skills/vendors/habitus.yaml
+# skills/vendors/habitus/image-extraction.yaml
 image_extraction:
   page_offset:
     default: 1

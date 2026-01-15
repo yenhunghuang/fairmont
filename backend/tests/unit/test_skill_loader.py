@@ -330,6 +330,542 @@ class TestSkillLoaderSingleton:
         assert loader1 is loader2
 
 
+class TestDirectoryBasedVendorLoading:
+    """目錄式供應商配置載入測試."""
+
+    @pytest.fixture
+    def temp_skills_dir_with_vendor_directory(self) -> Path:
+        """建立包含目錄式供應商配置的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            vendor_dir = skills_dir / "vendors" / "test_vendor"
+            vendor_dir.mkdir(parents=True)
+
+            # _vendor.yaml - 基本識別
+            vendor_config = {
+                "vendor": {
+                    "name": "Test Vendor Directory",
+                    "identifier": "test_vendor",
+                    "version": "2.0.0",
+                }
+            }
+            with open(vendor_dir / "_vendor.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(vendor_config, f, allow_unicode=True)
+
+            # document-types.yaml
+            doc_types = {
+                "document_types": {
+                    "furniture_specification": {
+                        "description": "Furniture spec",
+                        "provides": ["item_no", "description"],
+                    }
+                }
+            }
+            with open(vendor_dir / "document-types.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(doc_types, f, allow_unicode=True)
+
+            # image-extraction.yaml
+            image_config = {
+                "image_extraction": {
+                    "page_offset": {"default": 1},
+                    "product_image": {"min_area_px": 10000},
+                    "exclusions": [
+                        {"type": "logo", "description": "Logo", "rules": {"max_area_px": 5000}}
+                    ],
+                }
+            }
+            with open(vendor_dir / "image-extraction.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(image_config, f, allow_unicode=True)
+
+            # prompts/parse-specification.yaml
+            prompts_dir = vendor_dir / "prompts"
+            prompts_dir.mkdir()
+            prompt_config = {
+                "system": "You are a parser.",
+                "user_template": "Parse: {content}",
+            }
+            with open(prompts_dir / "parse-specification.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(prompt_config, f, allow_unicode=True)
+
+            yield skills_dir
+
+    def test_load_vendor_from_directory(self, temp_skills_dir_with_vendor_directory: Path):
+        """從目錄載入供應商配置."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_vendor_directory, cache_enabled=False)
+        skill = loader.load_vendor("test_vendor")
+
+        assert skill.vendor.name == "Test Vendor Directory"
+        assert skill.vendor.identifier == "test_vendor"
+        assert skill.version == "2.0.0"
+
+    def test_directory_loads_image_extraction(self, temp_skills_dir_with_vendor_directory: Path):
+        """目錄載入正確解析圖片抓取配置."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_vendor_directory, cache_enabled=False)
+        skill = loader.load_vendor("test_vendor")
+
+        assert skill.image_extraction.page_offset.default == 1
+        assert len(skill.image_extraction.exclusions) == 1
+        assert skill.image_extraction.exclusions[0].type == "logo"
+
+    def test_directory_loads_prompts(self, temp_skills_dir_with_vendor_directory: Path):
+        """目錄載入正確解析 Prompt 配置."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_vendor_directory, cache_enabled=False)
+        skill = loader.load_vendor("test_vendor")
+
+        assert skill.prompts.parse_specification.system == "You are a parser."
+        assert skill.prompts.parse_specification.user_template == "Parse: {content}"
+
+    def test_single_file_fallback(self, temp_skills_dir_with_vendor_directory: Path):
+        """當目錄不存在時，仍可載入單檔配置（向後相容）."""
+        # 建立單檔配置
+        single_file_config = {
+            "vendor": {
+                "name": "Single File Vendor",
+                "identifier": "single_file",
+                "version": "1.0.0",
+            }
+        }
+        vendor_path = temp_skills_dir_with_vendor_directory / "vendors" / "single_file.yaml"
+        with open(vendor_path, "w", encoding="utf-8") as f:
+            yaml.dump(single_file_config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_vendor_directory, cache_enabled=False)
+        skill = loader.load_vendor("single_file")
+
+        assert skill.vendor.name == "Single File Vendor"
+
+    def test_list_vendors_includes_directories(self, temp_skills_dir_with_vendor_directory: Path):
+        """list_vendors 包含目錄式供應商."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_vendor_directory, cache_enabled=False)
+        vendors = loader.list_vendors()
+
+        assert "test_vendor" in vendors
+
+
+class TestExternalPromptTemplateLoading:
+    """Prompt 模板外部化測試."""
+
+    @pytest.fixture
+    def temp_skills_dir_with_external_prompts(self) -> Path:
+        """建立包含外部 Prompt 模板的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            vendor_dir = skills_dir / "vendors" / "external_prompts"
+            vendor_dir.mkdir(parents=True)
+            prompts_dir = vendor_dir / "prompts"
+            prompts_dir.mkdir()
+            templates_dir = prompts_dir / "templates"
+            templates_dir.mkdir()
+
+            # _vendor.yaml
+            vendor_config = {
+                "vendor": {
+                    "name": "External Prompts Vendor",
+                    "identifier": "external_prompts",
+                    "version": "1.0.0",
+                }
+            }
+            with open(vendor_dir / "_vendor.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(vendor_config, f, allow_unicode=True)
+
+            # prompts/parse-specification.yaml - 使用外部模板
+            prompt_config = {
+                "system": "You are a professional parser.",
+                "user_template_file": "templates/parse-specification-template.md",
+            }
+            with open(prompts_dir / "parse-specification.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(prompt_config, f, allow_unicode=True)
+
+            # prompts/templates/parse-specification-template.md
+            template_content = """# Parse Specification Template
+
+Please analyze the PDF content and extract BOQ items.
+
+## Output Format
+JSON array with: source_page, category, item_no, description
+
+## Content
+{pdf_content}
+
+## Important Notes
+- Only output items with detailed spec pages
+- Fill null for unknown values
+"""
+            with open(templates_dir / "parse-specification-template.md", "w", encoding="utf-8") as f:
+                f.write(template_content)
+
+            yield skills_dir
+
+    def test_load_prompt_from_external_file(self, temp_skills_dir_with_external_prompts: Path):
+        """從外部 .md 檔案載入 Prompt 模板."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_external_prompts, cache_enabled=False)
+        skill = loader.load_vendor("external_prompts")
+
+        # 驗證 system 仍從 YAML 載入
+        assert skill.prompts.parse_specification.system == "You are a professional parser."
+        # 驗證 user_template 從外部 .md 檔案載入
+        assert "Parse Specification Template" in skill.prompts.parse_specification.user_template
+        assert "{pdf_content}" in skill.prompts.parse_specification.user_template
+        assert "Important Notes" in skill.prompts.parse_specification.user_template
+
+    def test_inline_template_still_works(self, temp_skills_dir_with_external_prompts: Path):
+        """內嵌模板仍可正常運作（向後相容）."""
+        # 新增一個使用內嵌模板的 prompt
+        prompts_dir = temp_skills_dir_with_external_prompts / "vendors" / "external_prompts" / "prompts"
+        inline_config = {
+            "system": "Inline system prompt",
+            "user_template": "This is an inline template: {content}",
+        }
+        with open(prompts_dir / "parse-quantity-summary.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(inline_config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_external_prompts, cache_enabled=False)
+        skill = loader.load_vendor("external_prompts")
+
+        assert skill.prompts.parse_quantity_summary.user_template == "This is an inline template: {content}"
+
+
+class TestVersionDependencies:
+    """版本依賴驗證測試."""
+
+    @pytest.fixture
+    def temp_skills_dir_with_dependencies(self) -> Path:
+        """建立包含版本依賴的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            (skills_dir / "vendors").mkdir(parents=True)
+            (skills_dir / "core").mkdir(parents=True)
+            (skills_dir / "output-formats").mkdir(parents=True)
+
+            # vendor 配置（含 requires）
+            vendor_config = {
+                "vendor": {
+                    "name": "Vendor With Deps",
+                    "identifier": "vendor_deps",
+                    "version": "1.2.0",
+                    "requires": {
+                        "merge_rules": ">=1.1.0",
+                        "output_format": ">=1.0.0",
+                    }
+                }
+            }
+            with open(skills_dir / "vendors" / "vendor_deps.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(vendor_config, f, allow_unicode=True)
+
+            # merge-rules 配置
+            merge_config = {
+                "rules": {
+                    "name": "Test Merge Rules",
+                    "identifier": "merge-rules",
+                    "version": "1.1.0",
+                }
+            }
+            with open(skills_dir / "core" / "merge-rules.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(merge_config, f, allow_unicode=True)
+
+            # output-format 配置
+            output_config = {
+                "format": {
+                    "name": "Test Output Format",
+                    "identifier": "fairmont",
+                    "version": "1.0.0",
+                },
+                "company": {
+                    "name": "Test Company",
+                }
+            }
+            with open(skills_dir / "output-formats" / "fairmont.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(output_config, f, allow_unicode=True)
+
+            yield skills_dir
+
+    def test_vendor_requires_field_parsed(self, temp_skills_dir_with_dependencies: Path):
+        """vendor.requires 欄位正確解析."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_dependencies, cache_enabled=False)
+        skill = loader.load_vendor("vendor_deps")
+
+        assert skill.vendor.requires is not None
+        assert skill.vendor.requires.get("merge_rules") == ">=1.1.0"
+        assert skill.vendor.requires.get("output_format") == ">=1.0.0"
+
+    def test_validate_dependencies_passes(self, temp_skills_dir_with_dependencies: Path):
+        """依賴版本驗證通過."""
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_dependencies, cache_enabled=False)
+        skill = loader.load_vendor("vendor_deps")
+
+        # 驗證應該通過
+        is_valid, errors = loader.validate_dependencies(skill)
+        assert is_valid is True
+        assert len(errors) == 0
+
+    def test_validate_dependencies_fails_for_incompatible_version(self, temp_skills_dir_with_dependencies: Path):
+        """依賴版本不相容時驗證失敗."""
+        # 修改 merge-rules 版本為不相容的 1.0.0
+        merge_config = {
+            "rules": {
+                "name": "Old Merge Rules",
+                "identifier": "merge-rules",
+                "version": "1.0.0",  # 不滿足 >=1.1.0
+            }
+        }
+        with open(temp_skills_dir_with_dependencies / "core" / "merge-rules.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(merge_config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=temp_skills_dir_with_dependencies, cache_enabled=False)
+        skill = loader.load_vendor("vendor_deps")
+
+        is_valid, errors = loader.validate_dependencies(skill)
+        assert is_valid is False
+        assert len(errors) > 0
+        assert "merge_rules" in errors[0]
+
+
+class TestJsonSchemaValidation:
+    """JSON Schema 驗證測試."""
+
+    @pytest.fixture
+    def temp_skills_with_schemas(self) -> Path:
+        """建立包含 Schema 的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            (skills_dir / "vendors").mkdir(parents=True)
+            (skills_dir / "schemas").mkdir(parents=True)
+
+            # 建立 vendor schema
+            vendor_schema = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["vendor"],
+                "properties": {
+                    "vendor": {
+                        "type": "object",
+                        "required": ["name", "identifier"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "identifier": {"type": "string"},
+                            "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+                        }
+                    }
+                }
+            }
+            import json
+            with open(skills_dir / "schemas" / "vendor.schema.json", "w", encoding="utf-8") as f:
+                json.dump(vendor_schema, f, indent=2)
+
+            # 有效的 vendor 配置
+            valid_config = {
+                "vendor": {
+                    "name": "Valid Vendor",
+                    "identifier": "valid",
+                    "version": "1.0.0",
+                }
+            }
+            with open(skills_dir / "vendors" / "valid.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(valid_config, f, allow_unicode=True)
+
+            # 無效的 vendor 配置（缺少 identifier）
+            invalid_config = {
+                "vendor": {
+                    "name": "Invalid Vendor",
+                    # 缺少 identifier
+                    "version": "1.0.0",
+                }
+            }
+            with open(skills_dir / "vendors" / "invalid.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(invalid_config, f, allow_unicode=True)
+
+            yield skills_dir
+
+    def test_schema_validation_passes_for_valid_config(self, temp_skills_with_schemas: Path):
+        """有效配置通過 Schema 驗證."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_schemas, cache_enabled=False)
+
+        # 啟用 Schema 驗證
+        is_valid, errors = loader.validate_against_schema("valid", "vendor")
+        assert is_valid is True
+        assert len(errors) == 0
+
+    def test_schema_validation_fails_for_invalid_config(self, temp_skills_with_schemas: Path):
+        """無效配置未通過 Schema 驗證."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_schemas, cache_enabled=False)
+
+        is_valid, errors = loader.validate_against_schema("invalid", "vendor")
+        assert is_valid is False
+        assert len(errors) > 0
+        assert "identifier" in errors[0].lower() or "required" in errors[0].lower()
+
+    def test_schema_validation_skipped_when_no_schema(self, temp_skills_with_schemas: Path):
+        """無 Schema 檔案時跳過驗證."""
+        # 刪除 schema 檔案
+        import os
+        os.remove(temp_skills_with_schemas / "schemas" / "vendor.schema.json")
+
+        loader = SkillLoaderService(skills_dir=temp_skills_with_schemas, cache_enabled=False)
+
+        # 無 schema 時應返回 True 並顯示警告
+        is_valid, errors = loader.validate_against_schema("valid", "vendor")
+        assert is_valid is True
+
+
+class TestDisclosureLevelMarking:
+    """漸進式揭露層級標記測試."""
+
+    @pytest.fixture
+    def temp_skills_with_disclosure(self) -> Path:
+        """建立包含揭露層級標記的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            vendor_dir = skills_dir / "vendors" / "disclosure_test"
+            vendor_dir.mkdir(parents=True)
+
+            # _vendor.yaml 含揭露層級標記
+            vendor_config = {
+                "vendor": {
+                    "name": "Disclosure Test Vendor",
+                    "identifier": "disclosure_test",
+                    "version": "1.0.0",
+                    "_disclosure_level": 1,  # L1: 識別層
+                }
+            }
+            with open(vendor_dir / "_vendor.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(vendor_config, f, allow_unicode=True)
+
+            # document-types.yaml
+            doc_types = {
+                "_disclosure_level": 2,  # L2: 初始化載入
+                "document_types": {
+                    "furniture_specification": {
+                        "description": "Furniture spec",
+                    }
+                }
+            }
+            with open(vendor_dir / "document-types.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(doc_types, f, allow_unicode=True)
+
+            # prompts
+            prompts_dir = vendor_dir / "prompts"
+            prompts_dir.mkdir()
+            prompt_config = {
+                "_disclosure_level": 4,  # L4: 執行時才載入
+                "_lazy_load": True,
+                "system": "Lazy loaded prompt",
+                "user_template": "Template",
+            }
+            with open(prompts_dir / "parse-specification.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(prompt_config, f, allow_unicode=True)
+
+            yield skills_dir
+
+    def test_get_disclosure_level_for_vendor(self, temp_skills_with_disclosure: Path):
+        """取得 vendor 的揭露層級."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_disclosure, cache_enabled=False)
+
+        levels = loader.get_disclosure_levels("disclosure_test")
+        assert levels.get("vendor") == 1
+        assert levels.get("document_types") == 2
+        assert levels.get("prompts.parse_specification") == 4
+
+    def test_disclosure_levels_default_to_none(self, temp_skills_with_disclosure: Path):
+        """未標記的區塊揭露層級為 None."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_disclosure, cache_enabled=False)
+
+        levels = loader.get_disclosure_levels("disclosure_test")
+        # 未標記的區塊應該不存在或為 None
+        assert levels.get("image_extraction") is None
+
+
+class TestFabricDetectionLocation:
+    """fabric_detection 歸屬測試."""
+
+    @pytest.fixture
+    def temp_skills_with_fabric_in_merge_rules(self) -> Path:
+        """建立 fabric_detection 在 merge-rules.yaml 中的臨時 skills 目錄."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_dir = Path(temp_dir)
+            (skills_dir / "vendors").mkdir(parents=True)
+            (skills_dir / "core").mkdir(parents=True)
+
+            # vendor 配置（不含 fabric_detection）
+            vendor_config = {
+                "vendor": {
+                    "name": "Test Vendor",
+                    "identifier": "test_vendor",
+                    "version": "1.0.0",
+                }
+            }
+            with open(skills_dir / "vendors" / "test_vendor.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(vendor_config, f, allow_unicode=True)
+
+            # merge-rules 配置（含 fabric_detection）
+            merge_config = {
+                "rules": {
+                    "name": "Test Merge Rules",
+                    "identifier": "merge-rules",
+                    "version": "1.2.0",
+                },
+                "fabric_detection": {
+                    "pattern": r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)",
+                    "description": "匹配 'Fabric to DLX-100' 格式",
+                    "belongs_to": "output_format",  # 明確標記歸屬
+                }
+            }
+            with open(skills_dir / "core" / "merge-rules.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(merge_config, f, allow_unicode=True)
+
+            yield skills_dir
+
+    def test_fabric_detection_loaded_from_merge_rules(self, temp_skills_with_fabric_in_merge_rules: Path):
+        """fabric_detection 從 merge-rules.yaml 載入."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_fabric_in_merge_rules, cache_enabled=False)
+        merge_rules = loader.load_merge_rules("merge-rules")
+
+        assert merge_rules.fabric_detection is not None
+        assert merge_rules.fabric_detection.pattern == r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)"
+        assert merge_rules.fabric_detection.belongs_to == "output_format"
+
+    def test_get_fabric_detection_helper(self, temp_skills_with_fabric_in_merge_rules: Path):
+        """便捷方法取得 fabric_detection 配置."""
+        loader = SkillLoaderService(skills_dir=temp_skills_with_fabric_in_merge_rules, cache_enabled=False)
+        fabric_detection = loader.get_fabric_detection()
+
+        assert fabric_detection is not None
+        assert fabric_detection.pattern == r"\s+to\s+([A-Z0-9][A-Z0-9\-\.]+)"
+
+    def test_vendor_fabric_detection_fallback(self, temp_skills_with_fabric_in_merge_rules: Path):
+        """當 merge-rules 無配置時，從 vendor 載入（向後相容）."""
+        # 移除 merge-rules 中的 fabric_detection
+        merge_config = {
+            "rules": {
+                "name": "Test Merge Rules",
+                "identifier": "merge-rules",
+                "version": "1.2.0",
+            }
+        }
+        with open(temp_skills_with_fabric_in_merge_rules / "core" / "merge-rules.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(merge_config, f, allow_unicode=True)
+
+        # 在 vendor 中新增 fabric_detection
+        vendor_config = {
+            "vendor": {
+                "name": "Test Vendor",
+                "identifier": "test_vendor",
+                "version": "1.0.0",
+            },
+            "fabric_detection": {
+                "pattern": r"\s+to\s+([A-Z]+)",
+                "description": "Vendor-specific pattern",
+            }
+        }
+        with open(temp_skills_with_fabric_in_merge_rules / "vendors" / "test_vendor.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(vendor_config, f, allow_unicode=True)
+
+        loader = SkillLoaderService(skills_dir=temp_skills_with_fabric_in_merge_rules, cache_enabled=False)
+        fabric_detection = loader.get_fabric_detection(vendor_id="test_vendor")
+
+        assert fabric_detection is not None
+        assert fabric_detection.pattern == r"\s+to\s+([A-Z]+)"
+
+
 class TestHabitusSkillIntegration:
     """HABITUS Skill 整合測試（使用真實配置檔）."""
 

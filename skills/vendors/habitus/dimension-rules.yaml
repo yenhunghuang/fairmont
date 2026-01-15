@@ -1,0 +1,53 @@
+# Dimension 格式化規則
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
+
+dimension_formatting:
+  _disclosure_level: 3
+  # 面料相關關鍵字（用於判斷 is_fabric）
+  fabric_keywords:
+    - "fabric"
+    - "leather"
+    - "textile"
+    - "upholstery"
+    - "vinyl"
+    - "面料"
+    - "皮革"
+    - "布料"
+
+  # 圓形家具關鍵字（用於判斷 is_circular）
+  circular_keywords:
+    - "dia"
+    - "dia."
+    - "diameter"
+    - "ø"
+    - "Ø"
+
+  # 完整面料格式的開頭前綴（用於早期返回）
+  fabric_format_prefixes:
+    - "vinyl"
+    - "fabric"
+    - "leather"
+    - "textile"
+
+  # 一般家具尺寸格式規則
+  furniture_dimension:
+    # 尺寸分隔符（用於識別 WxDxH 格式）
+    separators:
+      - "x"
+      - "×"
+      - "X"
+    # 尺寸標識符（W=寬, D=深, H=高, L=長）
+    dimension_labels:
+      - "W"
+      - "D"
+      - "H"
+      - "L"
+    # 尺寸單位
+    units:
+      - "mm"
+      - "cm"
+      - "m"
+    # 輸出格式模板
+    output_format: "W{width} x D{depth} x H{height} "
+    # 圓形家具輸出格式
+    circular_output_format: "Dia.{diameter} x H{height}"

@@ -258,6 +258,7 @@ class MergeService:
                 merged_item.qty_verified = True
                 merged_item.qty_from_summary = True
                 merged_item.merge_status = "matched"
+                merged_item.qty_order_index = qty_item.order_index  # 追蹤數量總表順序
 
                 # 建立合併結果
                 merge_result = MergeResult(
@@ -283,10 +284,31 @@ class MergeService:
             merged_items.append(merged_item)
             report.merge_results.append(merge_result)
 
-        # 處理僅在數量總表的項目
+        # 處理僅在數量總表的項目（建立 BOQItem）
         for normalized_id, (qty, original_item_no, qty_item) in qty_index.items():
             if normalized_id not in processed_normalized_ids:
-                # 建立合併結果（僅數量總表）
+                # 建立 quantity_only 的 BOQItem
+                qty_only_item = BOQItem(
+                    no=9999,  # 暫時值，後續重新編號
+                    item_no=original_item_no,
+                    item_no_normalized=normalized_id,
+                    description=qty_item.description or "",
+                    qty=qty,
+                    uom=qty_item.uom,
+                    category=1,  # 數量總表都是家具
+                    merge_status="quantity_only",
+                    qty_source="quantity_summary",
+                    qty_verified=True,
+                    qty_from_summary=True,
+                    qty_order_index=qty_item.order_index,  # 追蹤數量總表順序
+                    source_document_id=(
+                        quantity_summary_doc.id if quantity_summary_doc else "unknown"
+                    ),
+                    source_page=qty_item.source_page,
+                )
+                merged_items.append(qty_only_item)
+
+                # 建立合併結果
                 merge_result = MergeResult(
                     item_no_normalized=normalized_id,
                     original_item_nos=[original_item_no],
@@ -296,12 +318,9 @@ class MergeService:
                     ),
                 )
                 report.merge_results.append(merge_result)
-                report.add_warning(
-                    f"Item No. '{original_item_no}' 僅在數量總表中，無對應明細規格"
-                )
 
-        # 排序：單純按 item_no 排序（不考慮面料家具關聯）
-        merged_items = self._sort_items_by_item_no(merged_items)
+        # 排序：三層優先順序
+        merged_items = self._sort_items_by_priority(merged_items)
 
         # 重新編號
         for idx, item in enumerate(merged_items, start=1):
@@ -416,9 +435,107 @@ class MergeService:
 
         return merged
 
+    def _sort_items_by_priority(self, items: List[BOQItem]) -> List[BOQItem]:
+        """
+        排序項目（三層優先順序，智慧插入額外家具）.
+
+        排序規則：
+        1. 數量總表中的家具：按 Overall QTY.pdf 出現順序 (qty_order_index)
+        2. 額外的家具（unmatched，不在數量總表）：根據 item_no 前綴插入到對應位置
+           例如 DLX-100.1 會插入到 DLX-100 之後
+        3. 面料 (category=5)：全部放最後，按 item_no 字母順序
+
+        Args:
+            items: 合併後的 BOQItem 列表
+
+        Returns:
+            排序後的 BOQItem 列表
+        """
+        if not items:
+            return items
+
+        # 分離三類項目
+        qty_furniture: List[BOQItem] = []      # 數量總表中的家具（matched + quantity_only）
+        extra_furniture: List[BOQItem] = []    # 額外的家具（unmatched，不在數量總表）
+        fabric_items: List[BOQItem] = []       # 面料
+
+        for item in items:
+            if item.category == 5:
+                fabric_items.append(item)
+            elif item.qty_order_index is not None:
+                # 有數量總表順序 = 在數量總表中
+                qty_furniture.append(item)
+            else:
+                # 沒有數量總表順序 = 額外的家具
+                extra_furniture.append(item)
+
+        # 排序各分類
+        qty_furniture.sort(key=lambda x: x.qty_order_index)  # 按數量總表順序
+        extra_furniture.sort(
+            key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
+        )  # 按 item_no
+        fabric_items.sort(
+            key=lambda x: x.item_no_normalized or self.item_normalizer.normalize(x.item_no)
+        )  # 按 item_no
+
+        # 智慧插入：將額外家具按字母順序插入到數量總表家具之間
+        # 例如：DLX-099(QTY), DLX-100(extra), DLX-100.1(extra), DLX-102(QTY)
+        result: List[BOQItem] = []
+        extra_idx = 0
+
+        for qty_item in qty_furniture:
+            qty_normalized = qty_item.item_no_normalized
+
+            # 1. 先加入所有字母順序在此 qty_item 之前的額外家具
+            while extra_idx < len(extra_furniture):
+                extra_item = extra_furniture[extra_idx]
+                extra_normalized = (
+                    extra_item.item_no_normalized
+                    or self.item_normalizer.normalize(extra_item.item_no)
+                )
+
+                # 如果額外家具字母順序 < qty_item，加入結果
+                if extra_normalized < qty_normalized:
+                    result.append(extra_item)
+                    extra_idx += 1
+                else:
+                    break
+
+            # 2. 加入 qty_item 本身
+            result.append(qty_item)
+
+            # 3. 加入此 qty_item 的子項（如 DLX-102.1 是 DLX-102 的子項）
+            while extra_idx < len(extra_furniture):
+                extra_item = extra_furniture[extra_idx]
+                extra_normalized = (
+                    extra_item.item_no_normalized
+                    or self.item_normalizer.normalize(extra_item.item_no)
+                )
+
+                # 檢查是否為子項（如 DLX-102.1 以 DLX-102. 開頭）
+                if extra_normalized.startswith(qty_normalized + "."):
+                    result.append(extra_item)
+                    extra_idx += 1
+                else:
+                    break
+
+        # 剩餘的額外家具（字母順序在所有 qty_furniture 之後）
+        result.extend(extra_furniture[extra_idx:])
+
+        # 面料放在最後
+        result.extend(fabric_items)
+
+        logger.debug(
+            f"Item sorting: {len(qty_furniture)} qty_furniture + "
+            f"{len(extra_furniture)} extra_furniture + "
+            f"{len(fabric_items)} fabric items"
+        )
+
+        return result
+
     def _sort_items_by_item_no(self, items: List[BOQItem]) -> List[BOQItem]:
         """
-        單純按 item_no 排序項目.
+        單純按 item_no 排序項目（保留向後相容）.
 
         Args:
             items: 合併後的 BOQItem 列表

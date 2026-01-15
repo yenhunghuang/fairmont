@@ -1,0 +1,12 @@
+# 面料偵測規則（用於排序時識別面料引用的家具）
+# _disclosure_level: 3 (L3: 規則層 - 特定場景按需載入)
+
+fabric_detection:
+  _disclosure_level: 3
+  # 從 description 解析目標家具 item_no
+  # 格式範例:
+  #   - "Vinyl to DLX-100" -> ["DLX-100"]
+  #   - "Fabric to DLX-100.1" -> ["DLX-100.1"]
+  #   - "Fabric to DLX-100 and to DLX-200" -> ["DLX-100", "DLX-200"]
+  pattern: "\\s+to\\s+([A-Z0-9][A-Z0-9\\-\\.]+)"
+  description: "Habitus 面料格式：<類型> to <家具編號>"
