@@ -7,8 +7,6 @@
 import asyncio
 import logging
 from typing import List, Optional
-
-from ..models import BOQItem
 from ..store import InMemoryStore
 from ..utils import log_error
 from ..utils.document_type import detect_document_type_from_filename

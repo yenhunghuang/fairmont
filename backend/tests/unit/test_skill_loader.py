@@ -13,7 +13,6 @@ from app.services.skill_loader import (
     SkillLoaderService,
     SkillNotFoundError,
     SkillParseError,
-    VendorSkill,
     get_skill_loader,
 )
 

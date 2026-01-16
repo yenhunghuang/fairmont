@@ -84,7 +84,6 @@ def clear_all_service_caches() -> None:
 
     Note: This function must be called after all service factories are imported.
     """
-    import importlib
     import sys
 
     services_module = "app.services"

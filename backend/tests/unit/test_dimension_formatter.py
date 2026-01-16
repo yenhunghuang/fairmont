@@ -1,10 +1,7 @@
 """Dimension Formatter Service 單元測試."""
 
 import pytest
-from app.services.dimension_formatter import (
-    DimensionFormatterService,
-    get_dimension_formatter_service,
-)
+from app.services.dimension_formatter import get_dimension_formatter_service
 from app.models.boq_item import BOQItem
 
 

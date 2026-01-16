@@ -1,7 +1,7 @@
 """Health check endpoint."""
 
-from fastapi import APIRouter, Depends
-from ...store import InMemoryStore
+from fastapi import APIRouter
+
 from ...api.dependencies import StoreDep
 
 

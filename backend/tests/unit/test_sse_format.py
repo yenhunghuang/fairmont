@@ -4,7 +4,6 @@
 """
 
 import json
-import pytest
 from app.utils.sse import format_sse_event, format_result_event
 
 

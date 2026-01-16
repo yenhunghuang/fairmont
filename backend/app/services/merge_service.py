@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 
 from ..models.boq_item import BOQItem
 from ..models.quantity_summary import QuantitySummaryItem
-from ..models.merge_report import MergeReport, MergeResult, MergeStatus, FormatWarning
+from ..models.merge_report import MergeReport, MergeResult, MergeStatus
 from ..models.source_document import SourceDocument
 from .item_normalizer import get_item_normalizer_service
 from .image_selector import get_image_selector_service

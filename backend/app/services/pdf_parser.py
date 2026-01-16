@@ -4,8 +4,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import fitz  # PyMuPDF
