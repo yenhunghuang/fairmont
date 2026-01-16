@@ -41,26 +41,16 @@ streamlit run app.py
 
 ### Docker 部署
 
-#### 本地開發環境（前端 + 後端）
-
 ```bash
-docker-compose up -d --build      # 啟動前後端
-docker-compose restart            # 重啟（.env 變更後）
-docker-compose logs -f backend    # 查看後端日誌
-docker-compose logs -f frontend   # 查看前端日誌
-docker-compose down               # 停止
+# 本地開發（前端 + 後端）
+docker-compose up -d --build
+docker-compose logs -f backend
+
+# 生產環境（僅後端）
+docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
-#### 生產/測試環境（僅後端）
-
-前端由前端工程師團隊獨立部署，測試機僅需啟動後端：
-
-```bash
-docker-compose -f docker-compose.prod.yml up -d --build      # 啟動後端
-docker-compose -f docker-compose.prod.yml restart            # 重啟
-docker-compose -f docker-compose.prod.yml logs -f backend    # 查看日誌
-docker-compose -f docker-compose.prod.yml down               # 停止
-```
+詳見 [README.md](README.md) 和 [docs/deployment.md](docs/deployment.md)。
 
 ### 環境設定
 
@@ -106,12 +96,15 @@ docker-compose -f docker-compose.prod.yml down               # 停止
 | `backend/app/models/boq_item.py` | BOQItem 資料模型 |
 | `backend/app/models/progress.py` | SSE 進度追蹤模型 |
 | `backend/app/store.py` | 記憶體儲存（InMemoryStore）|
+| `backend/app/services/service_factory.py` | `@service_factory` 單例裝飾器 |
+| `backend/app/services/gemini_client.py` | Gemini API 呼叫封裝 |
+| `backend/app/config.py` | Pydantic Settings 配置 |
 
 ### 關鍵架構模式
 
 1. **記憶體儲存** (`store.py`): `InMemoryStore` 單例 + TTL 快取（1 小時），無資料庫
-2. **服務單例**: 透過 `get_*()` 工廠函式取得（如 `get_pdf_parser()`）
-3. **依賴注入**: `dependencies.py` 提供 `StoreDep`、`FileManagerDep` 等
+2. **服務單例**: 使用 `@service_factory` 裝飾器（見下方範例）
+3. **依賴注入**: `dependencies.py` 提供 `StoreDep`、`FileManagerDep`、`APIKeyDep` 等
 4. **錯誤處理**: `raise_error(ErrorCode.XXX, "訊息")` 拋出 API 錯誤
 5. **Skills 架構**: YAML 配置取代硬編碼（供應商規則、輸出格式、合併規則）
 
@@ -273,19 +266,26 @@ raise_error(ErrorCode.DOCUMENT_NOT_FOUND, "文件不存在", status_code=404)
 
 ### 新增服務
 
+使用 `@service_factory` 裝飾器建立執行緒安全的單例：
+
 ```python
 # services/my_service.py
+from app.services.service_factory import service_factory
+
 class MyService:
     def __init__(self, skill_loader: SkillLoader):
         self.skill_loader = skill_loader
 
-_my_service: MyService | None = None
-
+@service_factory
 def get_my_service() -> MyService:
-    global _my_service
-    if _my_service is None:
-        _my_service = MyService(get_skill_loader())
-    return _my_service
+    return MyService(get_skill_loader())
+
+# 使用方式
+service = get_my_service()  # 第一次呼叫建立實例
+service2 = get_my_service()  # 後續呼叫返回同一實例
+
+# 測試時清除快取
+get_my_service.clear_cache()
 ```
 
 ## 輸出格式
@@ -366,8 +366,17 @@ curl -N -H "Authorization: Bearer YOUR_API_KEY" \
 - 功能規格：`specs/001-furniture-quotation-system/spec.md`
 - 資料模型：`specs/001-furniture-quotation-system/data-model.md`
 - OpenAPI：`specs/001-furniture-quotation-system/contracts/openapi.yaml`
+- ADR（架構決策）：`docs/adr/`
 
 ## 測試
+
+### 測試資料
+
+位於 `docs/assets/fairmont-docs/`：
+- `Overall_QTY.pdf` — 數量總表
+- `Casegoods & Seatings.pdf` — 家具規格
+- `Fabric & Leather.pdf` — 面料規格
+- `RFQ FORM-FTQ25106_報價Excel Form.xlsx` — 客戶報價表範本
 
 ### 測試標記與執行
 
@@ -389,8 +398,24 @@ pytest -m slow           # 慢速測試
 | `sample_boq_item_data` | BOQ 項目資料 dict |
 | `sample_boq_items_for_merge` | 合併測試用 BOQ 列表 |
 | `sample_quantity_summary_items` | 數量總表項目 |
+| `sample_processing_task` | ProcessingTask 物件 |
+| `sample_quantity_summary_doc_data` | 數量總表文件資料 |
+| `sample_detail_spec_doc_data` | 明細規格文件資料 |
 
 **API 測試常數**：`API_PREFIX = "/api/v1"`（定義於 conftest.py）
+
+### 測試服務快取清理
+
+測試時需清理服務單例快取，避免狀態污染：
+
+```python
+from app.services.service_factory import clear_all_service_caches
+
+@pytest.fixture(autouse=True)
+def reset_services():
+    yield
+    clear_all_service_caches()
+```
 
 ### 手動 API 測試
 
@@ -398,12 +423,12 @@ pytest -m slow           # 慢速測試
 # 健康檢查
 curl -s http://localhost:8000/api/v1/health
 
-# PDF 解析（timeout 建議 300s+）
+# PDF 解析（使用測試資料，timeout 建議 360s+）
 curl -X POST "http://localhost:8000/api/v1/process" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "files=@path/to/file.pdf" \
-  -F "extract_images=false" \
-  --max-time 300
+  -F "files=@docs/assets/fairmont-docs/Overall_QTY.pdf" \
+  -F "files=@docs/assets/fairmont-docs/Casegoods & Seatings.pdf" \
+  --max-time 360
 ```
 
 ## Windows/Git Bash 注意事項
