@@ -361,7 +361,7 @@ async def _export_excel_background(
             quotation.export_status = "failed"
             quotation.export_error = str(e)
             store.update_quotation(quotation)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to update task/quotation status: {e}")
 
 

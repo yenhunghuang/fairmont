@@ -256,5 +256,5 @@ async def _analyze_floor_plan_background(
             task = store.get_task(task_id)
             task.fail(str(e))
             store.update_task(task)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to update task status: {e}")
