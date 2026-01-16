@@ -1,7 +1,6 @@
 """Integration tests for upload-parse-export flow (US1)."""
 
 import pytest
-import asyncio
 from fastapi.testclient import TestClient
 from pathlib import Path
 
@@ -76,7 +75,7 @@ class TestUploadParseExportFlow:
             )
 
         assert upload_response.status_code == 201
-        document_id = upload_response.json()["data"]["documents"][0]["id"]
+        assert upload_response.json()["data"]["documents"][0]["id"]  # Verify document was created
 
         # List documents
         list_response = client.get("/api/v1/documents")

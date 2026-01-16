@@ -8,8 +8,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import fitz  # PyMuPDF
 from google import genai

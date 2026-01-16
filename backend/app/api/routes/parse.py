@@ -43,8 +43,8 @@ async def start_parsing(
     - 返回任務 ID，可用於查詢進度
     """
     try:
-        # Get document
-        document = store.get_document(document_id)
+        # Validate document exists
+        store.get_document(document_id)
 
         # Create task
         task = ProcessingTask(
@@ -174,8 +174,8 @@ async def analyze_floor_plan(
     """
     try:
         # Validate documents exist
-        floor_plan_doc = store.get_document(floor_plan_document_id)
-        boq_doc = store.get_document(boq_document_id)
+        store.get_document(floor_plan_document_id)
+        store.get_document(boq_document_id)
 
         # Create task
         task = ProcessingTask(
@@ -256,5 +256,5 @@ async def _analyze_floor_plan_background(
             task = store.get_task(task_id)
             task.fail(str(e))
             store.update_task(task)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to update task status: {e}")

@@ -8,7 +8,6 @@ import base64
 
 from app.services.image_selector import (
     ImageSelectorService,
-    ImageInfo,
     get_image_selector_service,
 )
 

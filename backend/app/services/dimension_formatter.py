@@ -6,7 +6,7 @@
 
 import logging
 import re
-from typing import Optional, Tuple, List, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from ..models.boq_item import BOQItem
 

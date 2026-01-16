@@ -1,11 +1,10 @@
 """Tests for InMemoryStore TTL cleanup mechanism."""
 
 import time
-import pytest
 from datetime import datetime, timedelta
 
 from app.store import InMemoryStore
-from app.models import SourceDocument, BOQItem, ProcessingTask
+from app.models import SourceDocument, ProcessingTask
 
 
 class TestInMemoryStoreTTL:

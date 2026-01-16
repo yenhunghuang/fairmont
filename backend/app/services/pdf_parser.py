@@ -4,8 +4,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import fitz  # PyMuPDF
@@ -106,8 +104,8 @@ class PDFParserService:
         Find specification page content from PDF text.
 
         Searches for content containing "ITEM NO.:" which indicates a spec page,
-        rather than index/cover pages. Extracts content from the nearest page
-        boundary before ITEM NO.
+        rather than index/cover pages. Uses page separators to avoid picking up
+        PROJECT from index pages.
 
         Args:
             pdf_text: Full PDF text content
@@ -116,35 +114,49 @@ class PDFParserService:
         Returns:
             Specification page content containing PROJECT field
         """
-        # Look for specification page markers
         spec_markers = ["ITEM NO.:", "ITEM NO:", "Item No.:"]
+        page_separators = ["\f", "\n\n\n", "\r\n\r\n\r\n"]
 
         for marker in spec_markers:
             marker_pos = pdf_text.find(marker)
             if marker_pos != -1:
-                # Found spec page, look for page boundary before ITEM NO.
-                # Common page separators: multiple newlines, form feed, page markers
-                search_start = max(0, marker_pos - 1500)
+                # Search within 800 chars before ITEM NO. (reduced from 1500)
+                search_start = max(0, marker_pos - 800)
                 prefix_text = pdf_text[search_start:marker_pos]
 
-                # Find the start of the spec page (look for PROJECT: before ITEM NO.)
-                project_pos = prefix_text.rfind("PROJECT:")
+                # Find the nearest page separator to isolate spec page content
+                page_start = 0
+                for sep in page_separators:
+                    sep_pos = prefix_text.rfind(sep)
+                    if sep_pos != -1:
+                        page_start = max(page_start, sep_pos + len(sep))
+
+                # Search for PROJECT only within the same page block
+                page_content = prefix_text[page_start:]
+                project_pos = page_content.rfind("PROJECT:")
                 if project_pos == -1:
-                    project_pos = prefix_text.rfind("PROJECT :")
+                    project_pos = page_content.rfind("PROJECT :")
                 if project_pos == -1:
-                    project_pos = prefix_text.rfind("Project:")
+                    project_pos = page_content.rfind("Project:")
 
                 if project_pos != -1:
-                    # Found PROJECT, start from there
-                    start_pos = search_start + project_pos
+                    start_pos = search_start + page_start + project_pos
                 else:
-                    # No PROJECT found, use limited context before ITEM NO.
-                    start_pos = max(0, marker_pos - 500)
+                    start_pos = search_start + page_start
 
                 end_pos = min(len(pdf_text), marker_pos + 2000)
-                return pdf_text[start_pos:end_pos]
+                result = pdf_text[start_pos:end_pos]
+                logger.debug(
+                    f"_find_specification_page_content: marker={marker}, "
+                    f"marker_pos={marker_pos}, page_start={page_start}, "
+                    f"project_pos={project_pos}, result_len={len(result)}"
+                )
+                # Log first 200 chars of result for debugging
+                logger.debug(f"Spec content preview: {result[:200]}...")
+                return result
 
         # Fallback: return first portion if no spec markers found
+        logger.debug("_find_specification_page_content: No spec markers found, using fallback")
         return pdf_text[:max_chars]
 
     def validate_pdf(self, file_path: str) -> tuple[int, bool]:
@@ -403,7 +415,10 @@ class PDFParserService:
 
             # 1. Extract project metadata first
             project_metadata = await self._extract_project_metadata(text_content, document_id)
-            logger.info(f"Extracted project metadata: {project_metadata}")
+            logger.info(
+                f"Extracted project metadata: {project_metadata}, "
+                f"project_name={project_metadata.get('project_name') if project_metadata else 'N/A'}"
+            )
 
             # 2. Prepare prompt for BOQ items
             prompt = self._create_boq_extraction_prompt(

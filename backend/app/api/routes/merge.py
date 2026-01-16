@@ -299,7 +299,7 @@ async def get_merge_report(
     """
     try:
         # 確認報價單存在
-        quotation = store.get_quotation(quotation_id)
+        store.get_quotation(quotation_id)
 
         # 取得合併報告
         report = store.get_merge_report_by_quotation(quotation_id)

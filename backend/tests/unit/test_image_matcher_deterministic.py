@@ -1,11 +1,8 @@
 """Unit tests for DeterministicImageMatcher."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
-import yaml
 
 from app.services.image_matcher_deterministic import (
     DEFAULT_EXCLUSION_RULES,
@@ -523,7 +520,7 @@ class TestVendorSpecificMatcher:
         with patch("app.services.skill_loader.get_skill_loader") as mock_loader:
             mock_loader.return_value.load_vendor_or_default.return_value = None
             with caplog.at_level(logging.INFO):
-                matcher = DeterministicImageMatcher(vendor_id="habitus")
+                DeterministicImageMatcher(vendor_id="habitus")
 
             assert "habitus" in caplog.text or "default" in caplog.text
 

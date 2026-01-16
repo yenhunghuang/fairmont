@@ -172,8 +172,13 @@ async def _process_core(
 
         if project_metadata:
             doc.project_name = project_metadata.get("project_name")
+            logger.debug(
+                f"Project metadata check: doc.project_name={doc.project_name}, "
+                f"collected_project_name={collected_project_name}"
+            )
             if doc.project_name and not collected_project_name:
                 collected_project_name = doc.project_name
+                logger.info(f"Set collected_project_name to: {collected_project_name}")
 
         # 圖片提取和匹配
         if extract_images and boq_items:
@@ -295,6 +300,7 @@ async def _process_core(
         "merge_match_rate": merge_report.get_match_rate(),
     }
 
+    logger.info(f"_process_core returning project_name: {collected_project_name}")
     return ProcessResult(
         merged_items=merged_items,
         project_name=collected_project_name,
